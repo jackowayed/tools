@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cryptic Scratchpad</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Courier New', monospace;
+    background: #1a1a2e;
+    color: #e0e0e0;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px 16px;
+  }
+
+  h1 {
+    font-size: 1.1rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: #a0a8d0;
+    margin-bottom: 28px;
+  }
+
+  textarea {
+    width: 100%;
+    max-width: 600px;
+    background: #16213e;
+    border: 1px solid #2a2a5a;
+    border-radius: 10px;
+    padding: 14px 16px;
+    font-size: 1.3rem;
+    color: #f0f0f0;
+    outline: none;
+    caret-color: #7b8cde;
+    letter-spacing: 0.05em;
+    resize: none;
+    min-height: 56px;
+    line-height: 1.5;
+    font-family: 'Courier New', monospace;
+  }
+
+  textarea::placeholder { color: #444466; }
+
+  .section-label {
+    width: 100%;
+    max-width: 600px;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: #9090bb;
+    margin-bottom: 8px;
+  }
+
+  .letter-display {
+    margin-top: 16px;
+    margin-bottom: 28px;
+    width: 100%;
+    max-width: 600px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 0px;
+    align-items: flex-end;
+  }
+
+  .word-group {
+    display: inline-flex;
+    align-items: flex-end;
+    margin-right: 10px;
+    margin-bottom: 4px;
+  }
+
+  .cell {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-width: 22px;
+  }
+
+  .letter {
+    font-size: 1.4rem;
+    font-weight: bold;
+    color: #e8eaf6;
+    text-transform: uppercase;
+    line-height: 1;
+    padding: 0 1px;
+  }
+
+  .index {
+    font-size: 0.7rem;
+    font-weight: bold;
+    color: #b0bcff;
+    margin-top: 4px;
+    line-height: 1;
+  }
+
+  .cell.over .letter { color: #ff6b6b; }
+  .cell.over .index  { color: #ff6b6b; }
+  .cell.pad          { opacity: 0.35; }
+
+  #fetch-btn {
+    background: #2a2a5a;
+    border: 1px solid #3a3a7a;
+    border-radius: 8px;
+    color: #b0bcff;
+    font-family: 'Courier New', monospace;
+    font-size: 0.85rem;
+    padding: 8px 18px;
+    cursor: pointer;
+    margin-bottom: 20px;
+    letter-spacing: 0.05em;
+  }
+  #fetch-btn:hover { background: #3a3a7a; }
+  #fetch-btn:disabled { opacity: 0.5; cursor: default; }
+
+  .divider {
+    width: 100%;
+    max-width: 600px;
+    border-top: 1px solid #2a2a5a;
+    margin-bottom: 28px;
+  }
+</style>
+</head>
+<body>
+
+<h1>Cryptic Helper</h1>
+
+<button id="fetch-btn" onclick="fetchTodaysClue()">Fetch today's Minute Cryptic</button>
+
+<div class="section-label">Answer</div>
+<textarea id="answer-area" placeholder="Type your answer here…" rows="2" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
+<div id="answer-display" class="letter-display"></div>
+
+<div class="divider"></div>
+
+<div class="section-label">Clue</div>
+<textarea id="clue-area" placeholder="Paste clue here…" rows="2" autocomplete="off" autocorrect="off" spellcheck="false"></textarea>
+<div id="clue-display" class="letter-display"></div>
+
+<script>
+  let expectedWords = null; // array of per-word lengths, e.g. [3,4], or null
+
+  // Returns array of lengths e.g. [3,4] or null
+  function parseExpectedWords(text) {
+    const m = text.match(/\(([0-9][0-9,\- ]*)\)\s*$/);
+    if (!m) return null;
+    const nums = m[1].split(/[,\-\s]+/).map(Number).filter(n => n > 0);
+    return nums.length ? nums : null;
+  }
+
+  function makeCell(ch, idx, ...cls) {
+    const cell = document.createElement('div');
+    cell.className = ['cell', ...cls].filter(Boolean).join(' ');
+    const lDiv = document.createElement('div');
+    lDiv.className = 'letter';
+    lDiv.textContent = ch;
+    const nDiv = document.createElement('div');
+    nDiv.className = 'index';
+    nDiv.textContent = idx;
+    cell.appendChild(lDiv);
+    cell.appendChild(nDiv);
+    return cell;
+  }
+
+  function makeGroup(...cells) {
+    const g = document.createElement('div');
+    g.className = 'word-group';
+    cells.forEach(c => g.appendChild(c));
+    return g;
+  }
+
+  // Clue: number each word from 1, no length constraints
+  function renderClue(text, container) {
+    container.innerHTML = '';
+    text.split(' ').forEach(word => {
+      if (!word) return;
+      const cells = [...word].map((ch, i) => makeCell(ch, i + 1));
+      container.appendChild(makeGroup(...cells));
+    });
+  }
+
+  // Answer with optional per-word length constraints
+  function renderAnswer(text, container, wordLengths) {
+    container.innerHTML = '';
+    const typedWords = text.split(' ');
+
+    if (!wordLengths) {
+      // No length info — just number each word from 1
+      typedWords.forEach(word => {
+        if (!word) return;
+        const cells = [...word].map((ch, i) => makeCell(ch, i + 1));
+        container.appendChild(makeGroup(...cells));
+      });
+      return;
+    }
+
+    const slots = Math.max(wordLengths.length, typedWords.length);
+    for (let wi = 0; wi < slots; wi++) {
+      const maxLen  = wi < wordLengths.length ? wordLengths[wi] : 0;
+      const typed   = wi < typedWords.length  ? typedWords[wi]  : '';
+      const cells   = [];
+
+      [...typed].forEach((ch, i) => {
+        const over = maxLen > 0 && (i + 1) > maxLen;
+        cells.push(makeCell(ch, i + 1, over ? 'over' : null));
+      });
+
+      // Padding up to expected length
+      for (let i = typed.length; i < maxLen; i++) {
+        cells.push(makeCell('_', i + 1, 'pad'));
+      }
+
+      if (cells.length) container.appendChild(makeGroup(...cells));
+    }
+  }
+
+  function autoResize(el) {
+    el.style.height = 'auto';
+    el.style.height = el.scrollHeight + 'px';
+  }
+
+  const clueArea    = document.getElementById('clue-area');
+  const clueDisplay = document.getElementById('clue-display');
+  const answerArea    = document.getElementById('answer-area');
+  const answerDisplay = document.getElementById('answer-display');
+
+  clueArea.addEventListener('input', () => {
+    const t = clueArea.value.trim();
+    renderClue(t, clueDisplay);
+    expectedWords = parseExpectedWords(t);
+    renderAnswer(answerArea.value.trim(), answerDisplay, expectedWords);
+    autoResize(clueArea);
+  });
+
+  answerArea.addEventListener('input', () => {
+    renderAnswer(answerArea.value.trim(), answerDisplay, expectedWords);
+    autoResize(answerArea);
+  });
+
+  fetchTodaysClue();
+  
+  async function fetchTodaysClue() {
+    const btn = document.getElementById('fetch-btn');
+    btn.disabled = true;
+    btn.textContent = 'Fetching…';
+    try {
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const res = await fetch(`/api/daily_puzzle/today?tz=${encodeURIComponent(tz)}`);
+      if (!res.ok) throw new Error('API returned ' + res.status);
+      const data = await res.json();
+      const clueText = data.clue.map(w => w.text).join(' ')
+        + ' (' + data.config.join(',') + ')';
+      clueArea.value = clueText;
+      clueArea.dispatchEvent(new Event('input'));
+      btn.textContent = 'Fetched!';
+    } catch (e) {
+      btn.textContent = 'Fetch failed';
+      console.error(e);
+    }
+    setTimeout(() => {
+      btn.disabled = false;
+      btn.textContent = 'Fetch today\'s Minute Cryptic';
+    }, 2000);
+  }
+</script>
+</body>
+</html>
