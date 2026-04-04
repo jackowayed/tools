@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Pomodoro</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: #f5f0eb;
+    color: #1a1a1a;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    gap: 2rem;
+  }
+
+  #mode-label {
+    font-size: 1rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    font-weight: 700;
+    color: #c0392b;
+    transition: color 0.4s;
+  }
+  #mode-label.break { color: #1a7a6e; }
+
+  #clock {
+    font-size: min(4rem, 15vw);
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1;
+    color: #1a1a1a;
+  }
+
+  .ring-wrap {
+    position: relative;
+    width: min(240px, 60vw);
+    height: min(240px, 60vw);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  svg.ring {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%;
+    height: 100%;
+    transform: rotate(-90deg);
+  }
+
+  .ring-bg { fill: none; stroke: #d9d0c7; stroke-width: 6; }
+  .ring-prog {
+    fill: none;
+    stroke: #c0392b;
+    stroke-width: 6;
+    stroke-linecap: round;
+    transition: stroke-dashoffset 1s linear, stroke 0.4s;
+  }
+  .ring-prog.break { stroke: #1a7a6e; }
+
+  .btn-row {
+    display: flex;
+    gap: 0.75rem;
+  }
+
+  .pomo-btn {
+    background: #e8e0d8;
+    border: 2px solid transparent;
+    color: #1a1a1a;
+    border-radius: 2rem;
+    padding: 0.5rem 1.4rem;
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s, border-color 0.2s;
+  }
+  .pomo-btn:hover { background: #ddd5cb; }
+  .pomo-btn.active {
+    border-color: #c0392b;
+    background: #f9e5e3;
+    color: #c0392b;
+  }
+
+  .control-btn {
+    background: #c0392b;
+    border: none;
+    color: #fff;
+    border-radius: 2rem;
+    padding: 0.75rem 2.8rem;
+    font-size: 1rem;
+    font-weight: 700;
+    cursor: pointer;
+    letter-spacing: 0.05em;
+    transition: background 0.2s, transform 0.1s;
+  }
+  .control-btn:hover { background: #a93226; }
+  .control-btn:active { transform: scale(0.97); }
+  .control-btn.break-mode { background: #1a7a6e; }
+  .control-btn.break-mode:hover { background: #145f56; }
+
+  .slider-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    width: 220px;
+  }
+
+  .slider-label {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #555;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .slider-val {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #1a7a6e;
+  }
+
+  input[type=range] {
+    -webkit-appearance: none;
+    width: 100%;
+    height: 4px;
+    border-radius: 2px;
+    background: #d9d0c7;
+    outline: none;
+    cursor: pointer;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    background: #1a7a6e;
+    cursor: pointer;
+  }
+  input[type=range]::-moz-range-thumb {
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    background: #1a7a6e;
+    border: none;
+    cursor: pointer;
+  }
+
+  .reset-btn {
+    background: none;
+    border: none;
+    color: #888;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    letter-spacing: 0.05em;
+    padding: 0.2rem 0.5rem;
+    transition: color 0.2s;
+  }
+  .reset-btn:hover { color: #333; }
+</style>
+</head>
+<body>
+
+<div id="mode-label">Pomodoro</div>
+
+<div class="ring-wrap">
+  <svg class="ring" width="240" height="240" viewBox="0 0 240 240">
+    <circle class="ring-bg" cx="120" cy="120" r="108"/>
+    <circle class="ring-prog" id="ring" cx="120" cy="120" r="108"/>
+  </svg>
+  <div id="clock">25:00</div>
+</div>
+
+<div class="btn-row">
+  <button class="pomo-btn" data-min="5">5 min</button>
+  <button class="pomo-btn" data-min="15">15 min</button>
+  <button class="pomo-btn active" data-min="25">25 min</button>
+</div>
+
+<button class="control-btn" id="startStop">Start</button>
+
+<div class="slider-wrap">
+  <div class="slider-label">Break length</div>
+  <div class="slider-val" id="breakVal">5 min</div>
+  <input type="range" id="breakSlider" min="2" max="5" value="5" step="1">
+</div>
+
+<button class="reset-btn" id="resetBtn">↺ Reset</button>
+
+<script>
+  const clockEl    = document.getElementById('clock');
+  const modeLabel  = document.getElementById('mode-label');
+  const ring       = document.getElementById('ring');
+  const startStop  = document.getElementById('startStop');
+  const resetBtn   = document.getElementById('resetBtn');
+  const breakSlider= document.getElementById('breakSlider');
+  const breakVal   = document.getElementById('breakVal');
+  const pomoBtns   = document.querySelectorAll('.pomo-btn');
+
+  const CIRC = 2 * Math.PI * 108;
+  ring.style.strokeDasharray = CIRC;
+
+  const saved = (() => { try { return JSON.parse(localStorage.getItem('pomodoroSettings')) || {}; } catch { return {}; } })();
+
+  let pomoDuration  = saved.pomoDuration  || 25;
+  let breakDuration = saved.breakDuration || 5;
+  let totalSecs     = pomoDuration * 60;
+  let remaining     = totalSecs;
+  let isRunning     = false;
+  let isBreak       = false;
+  let interval      = null;
+
+  function saveSettings() {
+    try { localStorage.setItem('pomodoroSettings', JSON.stringify({ pomoDuration, breakDuration })); } catch {}
+  }
+
+  function fmt(s) {
+    const m = Math.floor(s / 60);
+    const sec = s % 60;
+    return `${m}:${sec.toString().padStart(2,'0')}`;
+  }
+
+  function setProgress(rem, total) {
+    ring.style.strokeDashoffset = CIRC * (1 - rem / total);
+  }
+
+  function render() {
+    const display = fmt(remaining);
+    clockEl.textContent = display;
+    document.title = `${display} | ${isBreak ? 'Break' : 'Pomodoro'}`;
+    setProgress(remaining, totalSecs);
+  }
+
+  function setMode(breakMode) {
+    isBreak = breakMode;
+    totalSecs = (isBreak ? breakDuration : pomoDuration) * 60;
+    remaining = totalSecs;
+    modeLabel.textContent = isBreak ? 'Break' : 'Pomodoro';
+    modeLabel.className   = isBreak ? 'break' : '';
+    ring.className        = isBreak ? 'ring-prog break' : 'ring-prog';
+    startStop.className   = isBreak ? 'control-btn break-mode' : 'control-btn';
+    render();
+  }
+
+  function tick() {
+    if (remaining <= 0) {
+      clearInterval(interval);
+      isRunning = false;
+      startStop.textContent = 'Start';
+      setMode(!isBreak);
+      return;
+    }
+    remaining--;
+    render();
+  }
+
+  function toggleRun() {
+    if (isRunning) {
+      clearInterval(interval);
+      isRunning = false;
+      startStop.textContent = 'Resume';
+    } else {
+      interval = setInterval(tick, 1000);
+      isRunning = true;
+      startStop.textContent = 'Pause';
+    }
+  }
+
+  function reset() {
+    clearInterval(interval);
+    isRunning = false;
+    isBreak   = false;
+    totalSecs = pomoDuration * 60;
+    remaining = totalSecs;
+    modeLabel.textContent = 'Pomodoro';
+    modeLabel.className   = '';
+    ring.className        = 'ring-prog';
+    startStop.className   = 'control-btn';
+    startStop.textContent = 'Start';
+    render();
+  }
+
+  // Init UI to match saved settings
+  breakSlider.value = breakDuration;
+  breakVal.textContent = `${breakDuration} min`;
+  pomoBtns.forEach(b => {
+    b.classList.toggle('active', parseInt(b.dataset.min) === pomoDuration);
+  });
+  pomoBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      pomoBtns.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      pomoDuration = parseInt(btn.dataset.min);
+      saveSettings();
+      if (!isBreak) {
+        clearInterval(interval);
+        isRunning = false;
+        totalSecs = pomoDuration * 60;
+        remaining = totalSecs;
+        startStop.textContent = 'Start';
+        render();
+      }
+    });
+  });
+
+  breakSlider.addEventListener('input', () => {
+    breakDuration = parseInt(breakSlider.value);
+    breakVal.textContent = `${breakDuration} min`;
+    saveSettings();
+    if (isBreak) {
+      totalSecs = breakDuration * 60;
+      remaining = totalSecs;
+      clearInterval(interval);
+      isRunning = false;
+      startStop.textContent = 'Start';
+      render();
+    }
+  });
+
+  startStop.addEventListener('click', toggleRun);
+  resetBtn.addEventListener('click', reset);
+
+  render();
+</script>
+</body>
+</html>
