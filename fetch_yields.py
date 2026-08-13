@@ -158,6 +158,87 @@ def fetch_distribution_yield(symbol):
 
 
 # --------------------------------------------------------------------------
+# Victory Capital 30-day SEC yield — the authoritative number for the funds
+# Victory publishes (via investorapi.vcm.com, the same feed that powers their
+# public fund pages). MAFRX is a Pioneer fund that Victory acquired; it isn't
+# in this feed yet, but wiring it by ticker means the real 30-day SEC yield
+# will appear automatically once Victory finishes migrating the Pioneer funds.
+# --------------------------------------------------------------------------
+
+# Public front-end key embedded in Victory's fund pages. We scrape a fresh
+# one each run so a rotation doesn't break us; this is only the fallback.
+_VICTORY_KEY_FALLBACK = "orcyfZFHdC9GK5Tk4haPn7o3CU5ItULauov6JsF9"
+_victory_cache = {}
+
+
+def _victory_api_key():
+    if "key" in _victory_cache:
+        return _victory_cache["key"]
+    key = _VICTORY_KEY_FALLBACK
+    try:
+        page = http_get(
+            "https://investor.vcm.com/products/mutual-funds/mutual-funds-list"
+        )
+        m = re.search(r'fundApiKey"?\s*value="([^"]+)"', page)
+        if m:
+            key = m.group(1)
+    except Exception:
+        pass
+    _victory_cache["key"] = key
+    return key
+
+
+def _victory_fund_index():
+    """Map upper-case ticker -> (fundId, share_class), cached per run."""
+    if "index" in _victory_cache:
+        return _victory_cache["index"]
+    index = {}
+    try:
+        funds = json.loads(
+            http_get(
+                "https://investorapi.vcm.com/search/products/FUND",
+                {"x-api-key": _victory_api_key()},
+            )
+        )
+        for fund in funds:
+            for cls in fund.get("classes", []):
+                tk = (cls.get("ticker") or "").upper()
+                if tk:
+                    index[tk] = (fund["fundId"], cls.get("share_class"))
+    except Exception:
+        pass
+    _victory_cache["index"] = index
+    return index
+
+
+def fetch_victory_sec_yield(ticker):
+    """Return (30-day SEC yield percent, as_of 'YYYY-MM-DD'), or (None, None)."""
+    fund_id, share = _victory_fund_index().get(ticker.upper(), (None, None))
+    if not fund_id:
+        return None, None
+    try:
+        rows = json.loads(
+            http_get(
+                f"https://investorapi.vcm.com/search/product/{fund_id}/Yields",
+                {"x-api-key": _victory_api_key()},
+            )
+        )
+    except Exception:
+        return None, None
+    for row in rows:
+        if row.get("share_class") == share:
+            fx = row.get("yields_fixed_income") or {}
+            raw = fx.get("thirtyday_sec_yield")
+            if raw:
+                as_of = fx.get("as_of_date")  # e.g. "07/31/2026"
+                if as_of and re.match(r"\d{2}/\d{2}/\d{4}", as_of):
+                    mm, dd, yy = as_of.split("/")
+                    as_of = f"{yy}-{mm}-{dd}"
+                return round(float(raw), 2), as_of
+    return None, None
+
+
+# --------------------------------------------------------------------------
 # Bank savings APYs — best-effort scrape of published-rate pages.
 # --------------------------------------------------------------------------
 
@@ -207,6 +288,8 @@ def update_source(src):
     """Update one source dict in place. Returns nothing."""
     sid = src["id"]
     value, method = None, None
+    metric = None   # override src["metric"] when a source has several forms
+    as_of = None    # override the "as of" date (else today, on success)
 
     try:
         if sid in BANK_PAGES:
@@ -218,8 +301,22 @@ def update_source(src):
             value = fetch_distribution_yield("SPY")
             method = "Yahoo Finance" if value is not None else None
         elif sid == "mafrx":
-            value = fetch_distribution_yield("MAFRX")
-            method = "Yahoo Finance" if value is not None else None
+            # Prefer the real 30-day SEC yield from Victory. If that's not
+            # available (Pioneer funds aren't in the feed yet) and no manual
+            # SEC value is set, approximate with the trailing distribution
+            # yield from Yahoo — clearly relabelled so the two aren't confused.
+            tk = src.get("victory_ticker")
+            if tk:
+                value, as_of = fetch_victory_sec_yield(tk)
+                if value is not None:
+                    method = "Victory Capital 30-day SEC yield"
+                    metric = "30-day SEC yield"
+            if value is None and src.get("manual") is None:
+                value = fetch_distribution_yield("MAFRX")
+                if value is not None:
+                    method = "Yahoo Finance (distribution yield)"
+                    metric = "trailing 12-mo distribution yield"
+                    as_of = today()
     except Exception as exc:  # never let one source break the run
         print(f"  ! {sid}: {exc}")
         value = None
@@ -227,8 +324,10 @@ def update_source(src):
     if value is not None:
         src["yield"] = value
         src["method"] = method
-        src["as_of"] = today()
+        src["as_of"] = as_of or today()
         src["status"] = "ok"
+        if metric:
+            src["metric"] = metric
         print(f"  ok {sid}: {value}% ({method})")
         return
 
@@ -239,6 +338,9 @@ def update_source(src):
         src["method"] = "manual value"
         src["as_of"] = today()
         src["status"] = "manual"
+        # A manual value for MAFRX is meant to be the 30-day SEC yield.
+        if sid == "mafrx":
+            src["metric"] = "30-day SEC yield"
         print(f"  ~ {sid}: using manual value {manual}%")
     elif src.get("yield") is not None:
         src["status"] = "stale"

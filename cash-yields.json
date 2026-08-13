@@ -55,7 +55,8 @@
     {
       "id": "mafrx",
       "name": "MAFRX",
-      "metric": "trailing 12-mo distribution yield",
+      "metric": "30-day SEC yield",
+      "victory_ticker": "MAFRX",
       "yield": null,
       "manual": null,
       "as_of": null,
