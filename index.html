@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tools</title>
+<style>
+  :root {
+    --bg: #f7f5f2;
+    --fg: #1a1a1a;
+    --muted: #6b6b6b;
+    --card: #ffffff;
+    --border: #e4e0da;
+    --accent: #6d28d9;
+    --accent-2: #9333ea;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #17151c;
+      --fg: #ececf1;
+      --muted: #9a96a6;
+      --card: #211e29;
+      --border: #322d3d;
+      --accent: #a78bfa;
+      --accent-2: #c084fc;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.55;
+  }
+  nav {
+    background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    padding: 1rem 1.25rem;
+    display: flex;
+    gap: 1.25rem;
+    align-items: baseline;
+  }
+  nav a { color: #fff; text-decoration: none; font-weight: 600; }
+  nav a:hover { text-decoration: underline; }
+  nav .brand { font-size: 1.15rem; margin-right: auto; }
+  main { max-width: 820px; margin: 0 auto; padding: 1.5rem 1.25rem 4rem; }
+  h1 { margin: 1rem 0 0.25rem; }
+  .subtitle { color: var(--muted); margin: 0 0 2rem; }
+  a { color: var(--accent); }</style>
+</head>
+<body>
+<nav>
+  <a class="brand" href="./">🛠️ tools</a>
+  <a href="./" aria-current="page">Home</a>
+  <a href="colophon.html">Colophon</a>
+</nav>
+<main>
+<h1>Tools</h1>
+<p class="subtitle">A little collection of 3 single-page tools.
+Spiritual successor to <a href="https://tools.simonwillison.net/">Simon
+Willison's tools</a>.</p>
+<ul class="tools">
+    <li class="tool">
+      <a class="tool-link" href="blood-pressure.html">Blood Pressure Log</a>
+      <span class="meta">updated 13th August 2026 ·
+        <a href="colophon.html#blood-pressure">history</a></span>
+    </li>
+    <li class="tool">
+      <a class="tool-link" href="pomodoro.html">Pomodoro</a>
+      <span class="meta">updated 3rd April 2026 ·
+        <a href="colophon.html#pomodoro">history</a></span>
+    </li>
+    <li class="tool">
+      <a class="tool-link" href="cryptic-scratchpad.html">Cryptic Scratchpad</a>
+      <span class="meta">updated 6th March 2026 ·
+        <a href="colophon.html#cryptic-scratchpad">history</a></span>
+    </li>
+</ul>
+<style>
+  .tools { list-style: none; padding: 0; margin: 0; }
+  .tool {
+    padding: 0.9rem 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .tool-link { font-size: 1.15rem; font-weight: 600; text-decoration: none; }
+  .tool-link:hover { text-decoration: underline; }
+  .meta { display: block; color: var(--muted); font-size: 0.85rem; margin-top: 0.15rem; }
+  .meta a { color: var(--muted); }
+</style>
+</main>
+</body>
+</html>

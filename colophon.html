@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Colophon</title>
+<style>
+  :root {
+    --bg: #f7f5f2;
+    --fg: #1a1a1a;
+    --muted: #6b6b6b;
+    --card: #ffffff;
+    --border: #e4e0da;
+    --accent: #6d28d9;
+    --accent-2: #9333ea;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #17151c;
+      --fg: #ececf1;
+      --muted: #9a96a6;
+      --card: #211e29;
+      --border: #322d3d;
+      --accent: #a78bfa;
+      --accent-2: #c084fc;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.55;
+  }
+  nav {
+    background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    padding: 1rem 1.25rem;
+    display: flex;
+    gap: 1.25rem;
+    align-items: baseline;
+  }
+  nav a { color: #fff; text-decoration: none; font-weight: 600; }
+  nav a:hover { text-decoration: underline; }
+  nav .brand { font-size: 1.15rem; margin-right: auto; }
+  main { max-width: 820px; margin: 0 auto; padding: 1.5rem 1.25rem 4rem; }
+  h1 { margin: 1rem 0 0.25rem; }
+  .subtitle { color: var(--muted); margin: 0 0 2rem; }
+  a { color: var(--accent); }</style>
+</head>
+<body>
+<nav>
+  <a class="brand" href="./">🛠️ tools</a>
+  <a href="./">Home</a>
+  <a href="colophon.html" aria-current="page">Colophon</a>
+</nav>
+<main>
+<h1>Colophon</h1>
+<p class="subtitle">How each tool was built, straight from the git log.
+3 tools in total.</p>
+  <section class="entry" id="blood-pressure">
+    <h2><a href="blood-pressure.html">Blood Pressure Log</a></h2>
+    <p class="entry-meta">
+      Added 13th August 2026 ·
+      2 commits
+    </p>
+      <ul class="commits">
+        <li>
+          <span class="commit-date">13th August 2026</span>
+          <span class="commit-msg">Color-code readings by range and neutralize pill color</span>
+          <code class="commit-hash">55054df</code>
+        </li>
+        <li>
+          <span class="commit-date">13th August 2026</span>
+          <span class="commit-msg">Add blood pressure log page</span>
+          <code class="commit-hash">536825f</code>
+        </li>
+      </ul>
+  </section>
+  <section class="entry" id="pomodoro">
+    <h2><a href="pomodoro.html">Pomodoro</a></h2>
+    <p class="entry-meta">
+      Added 3rd April 2026 ·
+      1 commit
+    </p>
+      <ul class="commits">
+        <li>
+          <span class="commit-date">3rd April 2026</span>
+          <span class="commit-msg">Pomodoro v1</span>
+          <code class="commit-hash">233c73e</code>
+        </li>
+      </ul>
+  </section>
+  <section class="entry" id="cryptic-scratchpad">
+    <h2><a href="cryptic-scratchpad.html">Cryptic Scratchpad</a></h2>
+    <p class="entry-meta">
+      Added 6th March 2026 ·
+      1 commit
+    </p>
+      <ul class="commits">
+        <li>
+          <span class="commit-date">6th March 2026</span>
+          <span class="commit-msg">Cryptic Scratchpad</span>
+          <code class="commit-hash">0dcd954</code>
+        </li>
+      </ul>
+  </section>
+<style>
+  .entry { padding: 1.25rem 0; border-bottom: 1px solid var(--border); }
+  .entry:target {
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    border-radius: 8px;
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+  }
+  .entry h2 { margin: 0 0 0.25rem; }
+  .entry h2 a { text-decoration: none; }
+  .entry h2 a:hover { text-decoration: underline; }
+  .entry-meta { color: var(--muted); font-size: 0.85rem; margin: 0 0 0.75rem; }
+  .commits { list-style: none; padding: 0; margin: 0; }
+  .commits li {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 0.6rem;
+    align-items: baseline;
+    padding: 0.35rem 0;
+    font-size: 0.92rem;
+  }
+  .commit-date { color: var(--muted); white-space: nowrap; font-size: 0.82rem; }
+  .commit-hash { color: var(--muted); font-size: 0.8rem; }
+  .no-history { color: var(--muted); font-style: italic; }
+  @media (max-width: 560px) {
+    .commits li { grid-template-columns: 1fr; gap: 0.1rem; }
+  }
+</style>
+</main>
+</body>
+</html>
