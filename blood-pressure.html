@@ -200,6 +200,15 @@
     font-size: 0.9rem;
     padding: 1.5rem 0;
   }
+
+  footer {
+    text-align: center;
+    color: #999;
+    font-size: 0.72rem;
+    line-height: 1.4;
+    max-width: 460px;
+    margin-top: 0.5rem;
+  }
 </style>
 </head>
 <body>
@@ -232,6 +241,10 @@
   <div class="feed-title">History</div>
   <div id="feed"></div>
 </div>
+
+<footer>
+  🔒 All your readings are stored locally in this browser. Nothing is sent to a server.
+</footer>
 
 <script>
   const STORAGE_KEY = 'bloodPressureLog';
@@ -273,10 +286,13 @@
 
   function fmtWhen(ts) {
     const d = new Date(ts);
-    return d.toLocaleString(undefined, {
-      month: 'short', day: 'numeric', year: 'numeric',
+    const date = d.toLocaleDateString(undefined, {
+      month: 'short', day: 'numeric', year: 'numeric'
+    });
+    const time = d.toLocaleTimeString(undefined, {
       hour: 'numeric', minute: '2-digit'
     });
+    return `${date} <strong>${time}</strong>`;
   }
 
   function render() {
