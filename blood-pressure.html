@@ -188,7 +188,13 @@
     font-size: 1rem;
     font-weight: 700;
     color: #1a1a1a;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    column-gap: 0.5rem;
+    row-gap: 0.1rem;
   }
+  .entry .main .reading { white-space: nowrap; }
   .entry .main .unit {
     font-size: 0.72rem;
     font-weight: 600;
@@ -197,8 +203,7 @@
   }
 
   .entry .main .pulse {
-    color: #c0392b;
-    margin-left: 0.5rem;
+    color: #1a1a1a;
     white-space: nowrap;
   }
   .entry .main .pulse .unit { color: #999; }
@@ -345,9 +350,9 @@
         const cat = classify(e.systolic, e.diastolic);
         div.className = 'entry ' + cat;
         icon = '🩸';
-        main = `${e.systolic} / ${e.diastolic} <span class="unit">mmHg</span>`;
+        main = `<span class="reading">${e.systolic} / ${e.diastolic} <span class="unit">mmHg</span></span>`;
         if (Number.isFinite(e.pulse)) {
-          main += ` <span class="pulse">♥ ${e.pulse} <span class="unit">bpm</span></span>`;
+          main += `<span class="pulse">♥ ${e.pulse} <span class="unit">bpm</span></span>`;
         }
         badge = `<span class="badge ${cat}">${cat}</span>`;
       } else {
