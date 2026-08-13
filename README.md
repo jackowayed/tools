@@ -23,5 +23,12 @@ from the tool files and git history:
 
 There are no manifests to maintain and no third-party dependencies — a tool
 appears on the homepage as soon as you drop its `.html` file in this
-directory. Re-run `./build.sh` after adding or committing a tool, then commit
-the regenerated `index.html` and `colophon.html`.
+directory.
+
+### Automatic rebuilds
+
+A GitHub Actions workflow (`.github/workflows/build.yml`) runs `./build.sh`
+on every push to `main` and commits the regenerated `index.html` and
+`colophon.html` back to the repo, so you don't have to build them by hand.
+It skips its own commits to avoid a loop. You can still run `./build.sh`
+locally to preview changes before pushing.

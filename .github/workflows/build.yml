@@ -1,0 +1,46 @@
+name: Build homepage and colophon
+
+on:
+  push:
+    branches: [main]
+    # Don't retrigger on the commit this workflow pushes back.
+    paths-ignore:
+      - index.html
+      - colophon.html
+  workflow_dispatch:
+
+# Only one build at a time; a newer push supersedes an in-flight run.
+concurrency:
+  group: build-pages
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so build_colophon.py can read each tool's git log.
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Build
+        run: ./build.sh
+
+      - name: Commit regenerated pages
+        run: |
+          if git diff --quiet -- index.html colophon.html; then
+            echo "No changes to index.html or colophon.html."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html colophon.html
+          git commit -m "Rebuild homepage and colophon [skip ci]"
+          git push
