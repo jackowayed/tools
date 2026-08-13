@@ -21,12 +21,15 @@ Design notes
   (via Yahoo's public chart endpoint) divided by the latest price.
 """
 
+import io
 import json
 import re
 import ssl
 import urllib.request
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
+from xml.etree import ElementTree as ET
 
 ROOT = Path(__file__).parent
 DATA = ROOT / "cash-yields.json"
@@ -39,11 +42,16 @@ TIMEOUT = 30
 _CTX = ssl.create_default_context()
 
 
+def http_get_bytes(url, headers=None, timeout=TIMEOUT):
+    """GET ``url`` and return the raw response bytes, or raise."""
+    req = urllib.request.Request(url, headers={"User-Agent": UA, **(headers or {})})
+    with urllib.request.urlopen(req, timeout=timeout, context=_CTX) as resp:
+        return resp.read()
+
+
 def http_get(url, headers=None):
     """GET ``url`` and return the decoded body text, or raise."""
-    req = urllib.request.Request(url, headers={"User-Agent": UA, **(headers or {})})
-    with urllib.request.urlopen(req, timeout=TIMEOUT, context=_CTX) as resp:
-        return resp.read().decode("utf-8", errors="replace")
+    return http_get_bytes(url, headers).decode("utf-8", errors="replace")
 
 
 def today():
@@ -239,6 +247,85 @@ def fetch_victory_sec_yield(ticker):
 
 
 # --------------------------------------------------------------------------
+# SPY 30-day SEC yield — State Street (SSGA) publishes it for every SPDR ETF
+# in one master spreadsheet. It's authoritative, stable, and parseable with
+# the standard library (an .xlsx is just a zip of XML).
+# --------------------------------------------------------------------------
+
+_XLNS = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
+SSGA_PRODUCT_DATA = (
+    "https://www.ssga.com/us/en/intermediary/library-content/"
+    "products/fund-data/etfs/us/spdr-product-data-us-en.xlsx"
+)
+
+
+def _xlsx_rows(raw):
+    """Yield each worksheet row of an .xlsx as a {column_index: text} dict."""
+    z = zipfile.ZipFile(io.BytesIO(raw))
+    shared = []
+    if "xl/sharedStrings.xml" in z.namelist():
+        for si in ET.fromstring(z.read("xl/sharedStrings.xml")).findall(f"{_XLNS}si"):
+            shared.append("".join(t.text or "" for t in si.iter(f"{_XLNS}t")))
+
+    def col_index(ref):
+        letters = re.match(r"[A-Z]+", ref).group(0)
+        n = 0
+        for ch in letters:
+            n = n * 26 + (ord(ch) - 64)
+        return n - 1
+
+    for row in ET.fromstring(z.read("xl/worksheets/sheet1.xml")).iter(f"{_XLNS}row"):
+        cells = {}
+        for c in row.findall(f"{_XLNS}c"):
+            v = c.find(f"{_XLNS}v")
+            if v is None:
+                continue
+            text = shared[int(v.text)] if c.get("t") == "s" else v.text
+            cells[col_index(c.get("r"))] = text
+        yield cells
+
+
+def fetch_ssga_sec_yield(ticker):
+    """Return (30-day SEC yield percent, as_of 'YYYY-MM-DD') for an SPDR ETF."""
+    try:
+        rows = list(_xlsx_rows(http_get_bytes(
+            SSGA_PRODUCT_DATA, {"Referer": "https://www.ssga.com/"}, timeout=45
+        )))
+    except Exception:
+        return None, None
+
+    ticker_col = sec_col = asof_col = None
+    for row in rows:
+        labels = {(v or "").strip(): k for k, v in row.items()}
+        if "Ticker" in labels and "30 Day SEC Yield" in labels:
+            ticker_col = labels["Ticker"]
+            sec_col = labels["30 Day SEC Yield"]  # not the "(Unsubsidized)" one
+            asof_col = next(
+                (k for lbl, k in labels.items() if lbl.startswith("As of")), None
+            )
+            break
+    if ticker_col is None:
+        return None, None
+
+    for row in rows:
+        if (row.get(ticker_col) or "").strip().upper() != ticker.upper():
+            continue
+        raw = (row.get(sec_col) or "").strip().rstrip("%")
+        if not raw or raw == "-":
+            return None, None
+        as_of = (row.get(asof_col) or "").strip() if asof_col is not None else ""
+        try:
+            as_of = datetime.strptime(as_of, "%b %d %Y").strftime("%Y-%m-%d")
+        except ValueError:
+            as_of = None
+        try:
+            return round(float(raw), 2), as_of
+        except ValueError:
+            return None, None
+    return None, None
+
+
+# --------------------------------------------------------------------------
 # Bank savings APYs — best-effort scrape of published-rate pages.
 # --------------------------------------------------------------------------
 
@@ -298,8 +385,10 @@ def update_source(src):
         elif sid == "tbill4w":
             value, method = fetch_tbill_4week()
         elif sid == "spy":
-            value = fetch_distribution_yield("SPY")
-            method = "Yahoo Finance" if value is not None else None
+            value, as_of = fetch_ssga_sec_yield(src.get("ssga_ticker", "SPY"))
+            if value is not None:
+                method = "State Street SPDR product data"
+                metric = "30-day SEC yield"
         elif sid == "mafrx":
             # Prefer the real 30-day SEC yield from Victory. If that's not
             # available (Pioneer funds aren't in the feed yet) and no manual

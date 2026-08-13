@@ -45,7 +45,8 @@
     {
       "id": "spy",
       "name": "SPY",
-      "metric": "trailing 12-mo dividend yield",
+      "metric": "30-day SEC yield",
+      "ssga_ticker": "SPY",
       "yield": null,
       "manual": null,
       "as_of": null,
