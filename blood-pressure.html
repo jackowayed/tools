@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Blood Pressure Log</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: #f5f0eb;
+    color: #1a1a1a;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 100vh;
+    padding: 2rem 1rem 4rem;
+    gap: 1.5rem;
+  }
+
+  h1 {
+    font-size: 1.4rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    color: #c0392b;
+  }
+
+  .card {
+    background: #fff;
+    border-radius: 1rem;
+    padding: 1.25rem 1.5rem;
+    width: 100%;
+    max-width: 460px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+  }
+
+  .card h2 {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: #888;
+    margin-bottom: 0.9rem;
+    font-weight: 700;
+  }
+
+  .bp-inputs {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin-bottom: 1rem;
+  }
+
+  .bp-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    flex: 1;
+  }
+
+  .bp-field label {
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: #777;
+    letter-spacing: 0.04em;
+  }
+
+  input[type=number] {
+    width: 100%;
+    padding: 0.6rem;
+    font-size: 1.3rem;
+    font-weight: 700;
+    text-align: center;
+    border: 2px solid #e0d8d0;
+    border-radius: 0.6rem;
+    background: #faf7f4;
+    color: #1a1a1a;
+    -moz-appearance: textfield;
+  }
+  input[type=number]::-webkit-outer-spin-button,
+  input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  input[type=number]:focus { outline: none; border-color: #c0392b; }
+
+  .slash {
+    font-size: 1.6rem;
+    font-weight: 300;
+    color: #bbb;
+    margin-top: 1.1rem;
+  }
+
+  .btn {
+    border: none;
+    border-radius: 2rem;
+    font-size: 0.95rem;
+    font-weight: 700;
+    cursor: pointer;
+    padding: 0.7rem 1.5rem;
+    transition: background 0.2s, transform 0.1s;
+    width: 100%;
+  }
+  .btn:active { transform: scale(0.98); }
+
+  .btn-bp { background: #c0392b; color: #fff; }
+  .btn-bp:hover { background: #a93226; }
+
+  .btn-pill { background: #1a7a6e; color: #fff; }
+  .btn-pill:hover { background: #145f56; }
+
+  .err {
+    color: #c0392b;
+    font-size: 0.8rem;
+    font-weight: 600;
+    margin-bottom: 0.6rem;
+    min-height: 1rem;
+  }
+
+  .feed {
+    width: 100%;
+    max-width: 460px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+  }
+
+  .feed-title {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: #888;
+    font-weight: 700;
+    margin-bottom: 0.2rem;
+  }
+
+  .entry {
+    background: #fff;
+    border-radius: 0.75rem;
+    padding: 0.75rem 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.9rem;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+    border-left: 4px solid transparent;
+  }
+  .entry.bp   { border-left-color: #c0392b; }
+  .entry.pill { border-left-color: #1a7a6e; }
+
+  .entry .icon { font-size: 1.3rem; line-height: 1; }
+
+  .entry .body { flex: 1; }
+
+  .entry .main {
+    font-size: 1rem;
+    font-weight: 700;
+    color: #1a1a1a;
+  }
+  .entry .main .unit {
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: #999;
+    margin-left: 0.3rem;
+  }
+
+  .entry .when {
+    font-size: 0.78rem;
+    color: #999;
+    margin-top: 0.15rem;
+  }
+
+  .entry .del {
+    background: none;
+    border: none;
+    color: #ccc;
+    font-size: 1.1rem;
+    cursor: pointer;
+    padding: 0.2rem 0.4rem;
+    line-height: 1;
+    transition: color 0.2s;
+  }
+  .entry .del:hover { color: #c0392b; }
+
+  .empty {
+    text-align: center;
+    color: #aaa;
+    font-size: 0.9rem;
+    padding: 1.5rem 0;
+  }
+</style>
+</head>
+<body>
+
+<h1>Blood Pressure Log</h1>
+
+<div class="card">
+  <h2>Add a reading</h2>
+  <div class="err" id="err"></div>
+  <div class="bp-inputs">
+    <div class="bp-field">
+      <label for="systolic">Systolic</label>
+      <input type="number" id="systolic" inputmode="numeric" min="0" max="400" placeholder="120">
+    </div>
+    <div class="slash">/</div>
+    <div class="bp-field">
+      <label for="diastolic">Diastolic</label>
+      <input type="number" id="diastolic" inputmode="numeric" min="0" max="400" placeholder="80">
+    </div>
+  </div>
+  <button class="btn btn-bp" id="addReading">Add reading</button>
+</div>
+
+<div class="card">
+  <h2>Medication</h2>
+  <button class="btn btn-pill" id="addPill">💊 Took my pill</button>
+</div>
+
+<div class="feed">
+  <div class="feed-title">History</div>
+  <div id="feed"></div>
+</div>
+
+<script>
+  const STORAGE_KEY = 'bloodPressureLog';
+
+  const sysEl   = document.getElementById('systolic');
+  const diaEl   = document.getElementById('diastolic');
+  const errEl   = document.getElementById('err');
+  const feedEl  = document.getElementById('feed');
+
+  function load() {
+    try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; }
+    catch { return []; }
+  }
+
+  function save(entries) {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(entries)); } catch {}
+  }
+
+  let entries = load();
+
+  function fmtWhen(ts) {
+    const d = new Date(ts);
+    return d.toLocaleString(undefined, {
+      month: 'short', day: 'numeric', year: 'numeric',
+      hour: 'numeric', minute: '2-digit'
+    });
+  }
+
+  function render() {
+    if (entries.length === 0) {
+      feedEl.innerHTML = '<div class="empty">No entries yet.</div>';
+      return;
+    }
+    // Reverse chronological (newest first)
+    const sorted = [...entries].sort((a, b) => b.ts - a.ts);
+    feedEl.innerHTML = '';
+    sorted.forEach(e => {
+      const div = document.createElement('div');
+      div.className = 'entry ' + e.type;
+      let icon, main;
+      if (e.type === 'bp') {
+        icon = '🩸';
+        main = `${e.systolic} / ${e.diastolic} <span class="unit">mmHg</span>`;
+      } else {
+        icon = '💊';
+        main = 'Took blood pressure pill';
+      }
+      div.innerHTML = `
+        <span class="icon">${icon}</span>
+        <div class="body">
+          <div class="main">${main}</div>
+          <div class="when">${fmtWhen(e.ts)}</div>
+        </div>
+        <button class="del" title="Delete" data-id="${e.id}">✕</button>`;
+      feedEl.appendChild(div);
+    });
+  }
+
+  function addEntry(entry) {
+    entry.id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    entry.ts = Date.now();
+    entries.push(entry);
+    save(entries);
+    render();
+  }
+
+  document.getElementById('addReading').addEventListener('click', () => {
+    errEl.textContent = '';
+    const sys = sysEl.value.trim();
+    const dia = diaEl.value.trim();
+    if (sys === '' || dia === '') {
+      errEl.textContent = 'Enter both systolic and diastolic values.';
+      return;
+    }
+    const s = Number(sys), d = Number(dia);
+    if (!Number.isInteger(s) || !Number.isInteger(d) || s <= 0 || d <= 0) {
+      errEl.textContent = 'Please enter two positive whole numbers.';
+      return;
+    }
+    addEntry({ type: 'bp', systolic: s, diastolic: d });
+    sysEl.value = '';
+    diaEl.value = '';
+    sysEl.focus();
+  });
+
+  document.getElementById('addPill').addEventListener('click', () => {
+    addEntry({ type: 'pill' });
+  });
+
+  feedEl.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('.del');
+    if (!btn) return;
+    const id = btn.dataset.id;
+    entries = entries.filter(e => e.id !== id);
+    save(entries);
+    render();
+  });
+
+  // Enter key in diastolic submits
+  diaEl.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter') document.getElementById('addReading').click();
+  });
+  sysEl.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter') diaEl.focus();
+  });
+
+  render();
+</script>
+</body>
+</html>
