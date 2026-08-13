@@ -103,8 +103,8 @@
   .btn-bp { background: #c0392b; color: #fff; }
   .btn-bp:hover { background: #a93226; }
 
-  .btn-pill { background: #1a7a6e; color: #fff; }
-  .btn-pill:hover { background: #145f56; }
+  .btn-pill { background: #5b6470; color: #fff; }
+  .btn-pill:hover { background: #4a525c; }
 
   .err {
     color: #c0392b;
@@ -141,8 +141,24 @@
     box-shadow: 0 1px 4px rgba(0,0,0,0.05);
     border-left: 4px solid transparent;
   }
-  .entry.bp   { border-left-color: #c0392b; }
-  .entry.pill { border-left-color: #1a7a6e; }
+  .entry.green   { border-left-color: #2e9e5b; }
+  .entry.yellow  { border-left-color: #d9a406; }
+  .entry.red     { border-left-color: #c0392b; }
+  .entry.neutral { border-left-color: #9aa2ac; }
+
+  .badge {
+    font-size: 0.66rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 0.22rem 0.6rem;
+    border-radius: 1rem;
+    color: #fff;
+    white-space: nowrap;
+  }
+  .badge.green  { background: #2e9e5b; }
+  .badge.yellow { background: #d9a406; }
+  .badge.red    { background: #c0392b; }
 
   .entry .icon { font-size: 1.3rem; line-height: 1; }
 
@@ -236,6 +252,25 @@
 
   let entries = load();
 
+  // Classify a single number against its ideal/warning/danger bands.
+  // Returns 0 = green, 1 = yellow, 2 = red.
+  function rank(value, low, idealMax, warnMax) {
+    if (value < low) return 1;        // below ideal -> yellow
+    if (value <= idealMax) return 0;  // within ideal -> green
+    if (value <= warnMax) return 1;   // elevated -> yellow
+    return 2;                         // too high -> red
+  }
+
+  // Category for a reading, using the worse (higher rank) of the two numbers.
+  // Systolic: ideal 100-140, warn up to 160.  Diastolic: ideal 60-90, warn up to 110.
+  function classify(systolic, diastolic) {
+    const worst = Math.max(
+      rank(systolic, 100, 140, 160),
+      rank(diastolic, 60, 90, 110)
+    );
+    return ['green', 'yellow', 'red'][worst];
+  }
+
   function fmtWhen(ts) {
     const d = new Date(ts);
     return d.toLocaleString(undefined, {
@@ -254,12 +289,15 @@
     feedEl.innerHTML = '';
     sorted.forEach(e => {
       const div = document.createElement('div');
-      div.className = 'entry ' + e.type;
-      let icon, main;
+      let icon, main, badge = '';
       if (e.type === 'bp') {
+        const cat = classify(e.systolic, e.diastolic);
+        div.className = 'entry ' + cat;
         icon = '🩸';
         main = `${e.systolic} / ${e.diastolic} <span class="unit">mmHg</span>`;
+        badge = `<span class="badge ${cat}">${cat}</span>`;
       } else {
+        div.className = 'entry neutral';
         icon = '💊';
         main = 'Took blood pressure pill';
       }
@@ -269,6 +307,7 @@
           <div class="main">${main}</div>
           <div class="when">${fmtWhen(e.ts)}</div>
         </div>
+        ${badge}
         <button class="del" title="Delete" data-id="${e.id}">✕</button>`;
       feedEl.appendChild(div);
     });
