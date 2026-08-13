@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cash Yields</title>
+<style>
+  :root {
+    --bg: #f7f5f2;
+    --fg: #1a1a1a;
+    --muted: #6b6b6b;
+    --card: #ffffff;
+    --border: #e4e0da;
+    --accent: #6d28d9;
+    --accent-2: #9333ea;
+    --ok: #2e9e5b;
+    --warn: #d9a406;
+    --bad: #c0392b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #17151c;
+      --fg: #ececf1;
+      --muted: #9a96a6;
+      --card: #211e29;
+      --border: #322d3d;
+      --accent: #a78bfa;
+      --accent-2: #c084fc;
+      --ok: #45c07a;
+      --warn: #e6bb3a;
+      --bad: #e0685a;
+    }
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.5;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 100vh;
+    padding: 2.25rem 1rem 4rem;
+    gap: 1.25rem;
+  }
+  .head { width: 100%; max-width: 560px; }
+  h1 {
+    font-size: 1.5rem;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+    background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .updated { color: var(--muted); font-size: 0.82rem; margin-top: 0.25rem; }
+
+  .list {
+    width: 100%;
+    max-width: 560px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+  }
+  .row {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 0.85rem;
+    padding: 0.9rem 1.1rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+  .rank {
+    font-size: 0.8rem;
+    font-weight: 800;
+    color: var(--muted);
+    width: 1.1rem;
+    text-align: center;
+    flex: none;
+  }
+  .info { flex: 1; min-width: 0; }
+  .name { font-size: 1rem; font-weight: 700; }
+  .metric { font-size: 0.76rem; color: var(--muted); margin-top: 0.1rem; }
+  .metric .dot { opacity: 0.5; margin: 0 0.35rem; }
+
+  .yield { text-align: right; flex: none; }
+  .yield .num {
+    font-size: 1.45rem;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+  }
+  .yield .num .pct { font-size: 0.9rem; font-weight: 700; color: var(--muted); }
+  .yield .num.dim { color: var(--muted); }
+
+  .pill {
+    display: inline-block;
+    font-size: 0.62rem;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    padding: 0.12rem 0.45rem;
+    border-radius: 1rem;
+    margin-top: 0.2rem;
+  }
+  .pill.ok { display: none; }
+  .pill.manual { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); }
+  .pill.stale  { background: color-mix(in srgb, var(--warn) 22%, transparent); color: var(--warn); }
+  .pill.unavailable, .pill.pending { background: color-mix(in srgb, var(--muted) 20%, transparent); color: var(--muted); }
+
+  .banner {
+    width: 100%;
+    max-width: 560px;
+    background: color-mix(in srgb, var(--warn) 14%, var(--card));
+    border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--border));
+    border-radius: 0.75rem;
+    padding: 0.75rem 1rem;
+    font-size: 0.85rem;
+    color: var(--fg);
+  }
+  .banner.hidden { display: none; }
+
+  footer {
+    width: 100%;
+    max-width: 560px;
+    color: var(--muted);
+    font-size: 0.74rem;
+    line-height: 1.55;
+    margin-top: 0.5rem;
+  }
+  footer a { color: var(--accent); }
+  .home { color: var(--muted); text-decoration: none; font-size: 0.8rem; }
+  .home:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+
+<div class="head">
+  <a class="home" href="./">← tools</a>
+  <h1>Cash Yields</h1>
+  <div class="updated" id="updated">Loading…</div>
+</div>
+
+<div class="banner hidden" id="banner"></div>
+
+<div class="list" id="list"></div>
+
+<footer>
+  Yields are shown <strong>as published</strong> — bank APYs, the 4-week
+  bill's coupon-equivalent yield, and trailing-12-month distribution yields
+  for SPY and MAFRX. No tax adjustment is applied, so the Treasury and muni
+  numbers look lower than their tax-equivalent value. Refreshed daily by a
+  scheduled job; each row shows when its number was last confirmed. Not
+  financial advice.
+</footer>
+
+<script>
+  const listEl = document.getElementById('list');
+  const updatedEl = document.getElementById('updated');
+  const bannerEl = document.getElementById('banner');
+
+  function relTime(iso) {
+    if (!iso) return null;
+    const then = new Date(iso).getTime();
+    if (Number.isNaN(then)) return null;
+    const secs = Math.round((Date.now() - then) / 1000);
+    const day = 86400;
+    if (secs < 3600) return 'just now';
+    if (secs < day) return `${Math.round(secs / 3600)}h ago`;
+    if (secs < 2 * day) return 'yesterday';
+    return `${Math.round(secs / day)} days ago`;
+  }
+
+  function fmtDate(d) {
+    if (!d) return null;
+    const dt = new Date(d + 'T00:00:00');
+    if (Number.isNaN(dt.getTime())) return d;
+    return dt.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+
+  const STATUS_LABEL = {
+    stale: 'stale',
+    manual: 'manual',
+    unavailable: 'unavailable',
+    pending: 'pending',
+  };
+
+  function render(data) {
+    // Overall "updated" line.
+    const rel = relTime(data.updated);
+    updatedEl.textContent = rel
+      ? `Updated ${rel}`
+      : 'Waiting for the first automatic update';
+
+    // Banner if any source needs attention.
+    const problems = data.sources.filter(s =>
+      s.status === 'stale' || s.status === 'unavailable' || s.status === 'pending');
+    if (problems.length) {
+      const names = problems.map(s => s.name).join(', ');
+      bannerEl.textContent =
+        `Some rates aren't confirmed yet: ${names}. ` +
+        `They'll fill in on the next scheduled run, or you can set a "manual" ` +
+        `fallback in cash-yields.json.`;
+      bannerEl.classList.remove('hidden');
+    }
+
+    // Sort by yield, highest first; unknown yields sink to the bottom.
+    const rows = [...data.sources].sort((a, b) => {
+      const av = a.yield == null ? -Infinity : a.yield;
+      const bv = b.yield == null ? -Infinity : b.yield;
+      return bv - av;
+    });
+
+    listEl.innerHTML = '';
+    rows.forEach((s, i) => {
+      const known = s.yield != null;
+      const asOf = fmtDate(s.as_of);
+      const pillTxt = STATUS_LABEL[s.status];
+      const div = document.createElement('div');
+      div.className = 'row';
+      div.innerHTML = `
+        <div class="rank">${known ? i + 1 : '·'}</div>
+        <div class="info">
+          <div class="name">${esc(s.name)}</div>
+          <div class="metric">
+            ${esc(s.metric)}${asOf ? `<span class="dot">·</span>as of ${esc(asOf)}` : ''}
+          </div>
+        </div>
+        <div class="yield">
+          <div class="num${known ? '' : ' dim'}">${known ? s.yield.toFixed(2) : '—'}<span class="pct">%</span></div>
+          ${pillTxt ? `<span class="pill ${s.status}">${pillTxt}</span>` : ''}
+        </div>`;
+      listEl.appendChild(div);
+    });
+  }
+
+  function esc(t) {
+    const d = document.createElement('div');
+    d.textContent = t == null ? '' : String(t);
+    return d.innerHTML;
+  }
+
+  fetch('cash-yields.json', { cache: 'no-store' })
+    .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
+    .then(render)
+    .catch(() => {
+      updatedEl.textContent = '';
+      bannerEl.textContent =
+        "Couldn't load cash-yields.json. It's generated by the scheduled " +
+        "job — run it once (or ./fetch_yields.py locally) to populate the data.";
+      bannerEl.classList.remove('hidden');
+    });
+</script>
+</body>
+</html>
