@@ -65,6 +65,26 @@
     letter-spacing: 0.04em;
   }
 
+  .bp-field label .optional {
+    font-weight: 500;
+    color: #aaa;
+    letter-spacing: 0;
+  }
+
+  .pulse-inputs {
+    display: flex;
+    align-items: flex-end;
+    gap: 0.6rem;
+    margin-bottom: 1rem;
+  }
+
+  .pulse-unit {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #999;
+    padding-bottom: 0.7rem;
+  }
+
   input[type=number] {
     width: 100%;
     padding: 0.6rem;
@@ -176,6 +196,13 @@
     margin-left: 0.3rem;
   }
 
+  .entry .main .pulse {
+    color: #c0392b;
+    margin-left: 0.5rem;
+    white-space: nowrap;
+  }
+  .entry .main .pulse .unit { color: #999; }
+
   .entry .when {
     font-size: 0.78rem;
     color: #999;
@@ -229,6 +256,13 @@
       <input type="number" id="diastolic" inputmode="numeric" min="0" max="400" placeholder="80">
     </div>
   </div>
+  <div class="pulse-inputs">
+    <div class="bp-field">
+      <label for="pulse">Pulse <span class="optional">(optional)</span></label>
+      <input type="number" id="pulse" inputmode="numeric" min="0" max="400" placeholder="72">
+    </div>
+    <div class="pulse-unit">bpm</div>
+  </div>
   <button class="btn btn-bp" id="addReading">Add reading</button>
 </div>
 
@@ -251,6 +285,7 @@
 
   const sysEl   = document.getElementById('systolic');
   const diaEl   = document.getElementById('diastolic');
+  const pulEl   = document.getElementById('pulse');
   const errEl   = document.getElementById('err');
   const feedEl  = document.getElementById('feed');
 
@@ -311,6 +346,9 @@
         div.className = 'entry ' + cat;
         icon = '🩸';
         main = `${e.systolic} / ${e.diastolic} <span class="unit">mmHg</span>`;
+        if (Number.isFinite(e.pulse)) {
+          main += ` <span class="pulse">♥ ${e.pulse} <span class="unit">bpm</span></span>`;
+        }
         badge = `<span class="badge ${cat}">${cat}</span>`;
       } else {
         div.className = 'entry neutral';
@@ -350,9 +388,20 @@
       errEl.textContent = 'Please enter two positive whole numbers.';
       return;
     }
-    addEntry({ type: 'bp', systolic: s, diastolic: d });
+    const entry = { type: 'bp', systolic: s, diastolic: d };
+    const pul = pulEl.value.trim();
+    if (pul !== '') {
+      const p = Number(pul);
+      if (!Number.isInteger(p) || p <= 0) {
+        errEl.textContent = 'Pulse must be a positive whole number.';
+        return;
+      }
+      entry.pulse = p;
+    }
+    addEntry(entry);
     sysEl.value = '';
     diaEl.value = '';
+    pulEl.value = '';
     sysEl.focus();
   });
 
@@ -369,12 +418,15 @@
     render();
   });
 
-  // Enter key in diastolic submits
-  diaEl.addEventListener('keydown', (ev) => {
-    if (ev.key === 'Enter') document.getElementById('addReading').click();
-  });
+  // Enter key advances through the fields, then submits from pulse.
   sysEl.addEventListener('keydown', (ev) => {
     if (ev.key === 'Enter') diaEl.focus();
+  });
+  diaEl.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter') pulEl.focus();
+  });
+  pulEl.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter') document.getElementById('addReading').click();
   });
 
   render();
