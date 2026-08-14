@@ -266,11 +266,11 @@
 
   table.bp-table {
     border-collapse: collapse;
-    font-size: 0.82rem;
+    font-size: 0.72rem;
   }
   table.bp-table th,
   table.bp-table td {
-    padding: 0.5rem 0.7rem;
+    padding: 0.25rem 0.35rem;
     text-align: center;
     white-space: nowrap;
     border: 1px solid #ece4dc;
@@ -283,14 +283,30 @@
     text-align: left;
     color: #888;
     text-transform: uppercase;
-    font-size: 0.64rem;
-    letter-spacing: 0.08em;
+    font-size: 0.58rem;
+    letter-spacing: 0.05em;
+    padding-right: 0.5rem;
   }
-  table.bp-table td.cell-value { font-weight: 700; color: #1a1a1a; }
+  table.bp-table td.cell-value {
+    font-size: 0.76rem;
+    font-weight: 700;
+    color: #1a1a1a;
+  }
   table.bp-table td.cell-date {
-    font-size: 0.72rem;
+    font-size: 0.66rem;
     color: #555;
-    line-height: 1.35;
+    line-height: 1.15;
+  }
+  table.bp-table td.cell-date sup {
+    font-size: 0.7em;
+    margin-left: 0.02em;
+  }
+  table.bp-table td.cell-date .t {
+    display: block;
+    margin-top: 0.25rem;
+    font-size: 0.56rem;
+    color: #a08f80;
+    letter-spacing: -0.01em;
   }
   table.bp-table td.col-green  { background: #e4f4ea; }
   table.bp-table td.col-yellow { background: #fbf1d0; }
@@ -410,12 +426,20 @@
     return `${date} <strong>${time}</strong>`;
   }
 
-  // Compact date/time for the table columns, stacked on two lines.
+  // English ordinal suffix for a day number (1st, 2nd, 3rd, 4th ...).
+  function ordinal(n) {
+    const v = n % 100;
+    if (v >= 11 && v <= 13) return 'th';
+    return ['th', 'st', 'nd', 'rd'][n % 10] || 'th';
+  }
+
+  // Compact day + time for the table columns: day with a superscript
+  // ordinal, and a very small 24-hour time line beneath it.
   function fmtTableDate(ts) {
     const d = new Date(ts);
-    const date = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-    const time = d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
-    return `${date}<br>${time}`;
+    const day = d.getDate();
+    const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
+    return `${day}<sup>${ordinal(day)}</sup><span class="t">${time}</span>`;
   }
 
   function render() {
@@ -472,7 +496,7 @@
       tableEl.innerHTML = '<div class="empty">No blood pressure readings yet.</div>';
       return;
     }
-    let dateRow = '<tr><th>Date</th>';
+    let dateRow = '<tr><th>Time</th>';
     let sysRow  = '<tr><th>Systolic</th>';
     let diaRow  = '<tr><th>Diastolic</th>';
     let pulRow  = '<tr><th>Pulse</th>';
