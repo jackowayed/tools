@@ -17,7 +17,13 @@
       "name": "Ally Savings",
       "metric": "APY",
       "yield": null,
-      "manual": null,
+      "manual": 3.00,
+      "aggregators": [
+        {
+          "url": "https://ratebrain.com/ally-bank-savings-account",
+          "pattern": "Current Rate:\\s*([0-9.]+)\\s*%\\s*APY"
+        }
+      ],
       "as_of": null,
       "method": "pending",
       "status": "pending"

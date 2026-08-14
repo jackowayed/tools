@@ -25,6 +25,7 @@ import html
 import json
 import re
 import ssl
+import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
@@ -319,6 +320,36 @@ def scrape_bank_apy(bank_id):
     return None
 
 
+def scrape_aggregator_apy(aggregators):
+    """Try each {url, pattern} rate aggregator; return (apy_percent, host).
+
+    Aggregators (e.g. rate trackers) often render a bank's APY server-side
+    even when the bank's own page hides it behind JavaScript. Each entry's
+    ``pattern`` must capture the rate in group 1. Best-effort and brittle by
+    nature, so it sits behind the direct scrape and ahead of the manual
+    fallback.
+    """
+    for agg in aggregators or []:
+        try:
+            page = http_get(agg["url"])
+        except Exception:
+            continue
+        # Reduce to visible text so patterns aren't broken by inline markup
+        # (e.g. "Current Rate: <b>3.00% APY</b>").
+        text = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html.unescape(page)))
+        m = re.search(agg["pattern"], text, re.IGNORECASE)
+        if not m:
+            continue
+        try:
+            v = float(m.group(1))
+        except (ValueError, IndexError):
+            continue
+        if 0.5 <= v <= 8:  # sanity band for a cash APY
+            host = re.sub(r"^www\.", "", urllib.parse.urlparse(agg["url"]).netloc)
+            return v, host
+    return None, None
+
+
 # --------------------------------------------------------------------------
 # Orchestration.
 # --------------------------------------------------------------------------
@@ -334,6 +365,10 @@ def update_source(src):
         if sid in BANK_PAGES:
             value = scrape_bank_apy(sid)
             method = "scraped bank page" if value is not None else None
+            if value is None and src.get("aggregators"):
+                value, host = scrape_aggregator_apy(src["aggregators"])
+                if value is not None:
+                    method = f"rate aggregator ({host})"
         elif sid == "tbill4w":
             value, method = fetch_tbill_4week()
         elif sid == "sgov":
