@@ -475,17 +475,21 @@
     let dateRow = '<tr><th>Date</th>';
     let sysRow  = '<tr><th>Systolic</th>';
     let diaRow  = '<tr><th>Diastolic</th>';
+    let pulRow  = '<tr><th>Pulse</th>';
     bp.forEach(e => {
       const cls = 'col-' + classify(e.systolic, e.diastolic);
+      const pulse = Number.isFinite(e.pulse) ? e.pulse : '—';
       dateRow += `<td class="${cls} cell-date">${fmtTableDate(e.ts)}</td>`;
       sysRow  += `<td class="${cls} cell-value">${e.systolic}</td>`;
       diaRow  += `<td class="${cls} cell-value">${e.diastolic}</td>`;
+      pulRow  += `<td class="${cls} cell-value">${pulse}</td>`;
     });
     dateRow += '</tr>';
     sysRow  += '</tr>';
     diaRow  += '</tr>';
+    pulRow  += '</tr>';
     tableEl.innerHTML =
-      `<div class="table-wrap"><table class="bp-table">${dateRow}${sysRow}${diaRow}</table></div>`;
+      `<div class="table-wrap"><table class="bp-table">${dateRow}${sysRow}${diaRow}${pulRow}</table></div>`;
   }
 
   function addEntry(entry) {
