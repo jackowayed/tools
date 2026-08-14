@@ -43,10 +43,10 @@
       "status": "pending"
     },
     {
-      "id": "spy",
-      "name": "SPY",
+      "id": "sgov",
+      "name": "SGOV",
       "metric": "30-day SEC yield",
-      "ssga_ticker": "SPY",
+      "ishares_url": "https://www.ishares.com/us/products/314116/ishares-0-3-month-treasury-bond-etf",
       "yield": null,
       "manual": null,
       "as_of": null,
