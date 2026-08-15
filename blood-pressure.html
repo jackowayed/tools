@@ -270,52 +270,48 @@
 
   table.bp-table {
     border-collapse: collapse;
-    font-size: 0.72rem;
+    font-size: 0.78rem;
+    width: 100%;
   }
   table.bp-table th,
   table.bp-table td {
-    padding: 0.25rem 0.35rem;
+    padding: 0.4rem 0.6rem;
     text-align: center;
     white-space: nowrap;
     border: 1px solid #ece4dc;
   }
-  table.bp-table th {
+  table.bp-table thead th {
     position: sticky;
-    left: 0;
+    top: 0;
     z-index: 1;
     background: #fff;
-    text-align: left;
     color: #888;
     text-transform: uppercase;
-    font-size: 0.58rem;
+    font-size: 0.6rem;
     letter-spacing: 0.05em;
-    padding-right: 0.5rem;
+  }
+  table.bp-table thead th:first-child {
+    text-align: left;
   }
   table.bp-table td.cell-value {
-    font-size: 0.76rem;
+    font-size: 0.82rem;
     font-weight: 700;
     color: #1a1a1a;
   }
   table.bp-table td.cell-date {
-    font-size: 0.66rem;
+    text-align: left;
+    font-size: 0.74rem;
     color: #555;
-    line-height: 1.15;
-  }
-  table.bp-table td.cell-date sup {
-    font-size: 0.7em;
-    margin-left: 0.02em;
   }
   table.bp-table td.cell-date .t {
-    display: block;
-    margin-top: 0.25rem;
-    font-size: 0.56rem;
+    margin-left: 0.5rem;
     color: #a08f80;
     letter-spacing: -0.01em;
   }
-  table.bp-table td.col-green  { background: #e4f4ea; }
-  table.bp-table td.col-yellow { background: #fbf1d0; }
-  table.bp-table td.col-red    { background: #f7ddd9; }
-  table.bp-table td.col-low    { background: #dce9f8; }
+  table.bp-table tr.col-green  td { background: #e4f4ea; }
+  table.bp-table tr.col-yellow td { background: #fbf1d0; }
+  table.bp-table tr.col-red    td { background: #f7ddd9; }
+  table.bp-table tr.col-low    td { background: #dce9f8; }
 
   footer {
     text-align: center;
@@ -430,20 +426,14 @@
     return `${date} <strong>${time}</strong>`;
   }
 
-  // English ordinal suffix for a day number (1st, 2nd, 3rd, 4th ...).
-  function ordinal(n) {
-    const v = n % 100;
-    if (v >= 11 && v <= 13) return 'th';
-    return ['th', 'st', 'nd', 'rd'][n % 10] || 'th';
-  }
-
-  // Compact day + time for the table columns: day with a superscript
-  // ordinal, and a very small 24-hour time line beneath it.
+  // Full date + 24-hour time for a table row's date cell.
   function fmtTableDate(ts) {
     const d = new Date(ts);
-    const day = d.getDate();
+    const date = d.toLocaleDateString(undefined, {
+      weekday: 'short', month: 'short', day: 'numeric', year: 'numeric'
+    });
     const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
-    return `${day}<sup>${ordinal(day)}</sup><span class="t">${time}</span>`;
+    return `${date}<span class="t">${time}</span>`;
   }
 
   function render() {
@@ -490,8 +480,8 @@
     });
   }
 
-  // Spreadsheet view: one column per reading (newest on the left),
-  // rows for date, systolic, diastolic. Columns are tinted by category.
+  // Spreadsheet view: one row per reading (newest on top), with
+  // columns for date, systolic, diastolic, pulse. Rows are tinted by category.
   function renderTable() {
     const bp = entries
       .filter(e => e.type === 'bp')
@@ -500,24 +490,24 @@
       tableEl.innerHTML = '<div class="empty">No blood pressure readings yet.</div>';
       return;
     }
-    let dateRow = '<tr><th>Time</th>';
-    let sysRow  = '<tr><th>Systolic</th>';
-    let diaRow  = '<tr><th>Diastolic</th>';
-    let pulRow  = '<tr><th>Pulse</th>';
+    const head =
+      '<thead><tr>' +
+      '<th>Date</th><th>Systolic</th><th>Diastolic</th><th>Pulse</th>' +
+      '</tr></thead>';
+    let rows = '';
     bp.forEach(e => {
       const cls = 'col-' + classify(e.systolic, e.diastolic);
       const pulse = Number.isFinite(e.pulse) ? e.pulse : '—';
-      dateRow += `<td class="${cls} cell-date">${fmtTableDate(e.ts)}</td>`;
-      sysRow  += `<td class="${cls} cell-value">${e.systolic}</td>`;
-      diaRow  += `<td class="${cls} cell-value">${e.diastolic}</td>`;
-      pulRow  += `<td class="${cls} cell-value">${pulse}</td>`;
+      rows +=
+        `<tr class="${cls}">` +
+        `<td class="cell-date">${fmtTableDate(e.ts)}</td>` +
+        `<td class="cell-value">${e.systolic}</td>` +
+        `<td class="cell-value">${e.diastolic}</td>` +
+        `<td class="cell-value">${pulse}</td>` +
+        '</tr>';
     });
-    dateRow += '</tr>';
-    sysRow  += '</tr>';
-    diaRow  += '</tr>';
-    pulRow  += '</tr>';
     tableEl.innerHTML =
-      `<div class="table-wrap"><table class="bp-table">${dateRow}${sysRow}${diaRow}${pulRow}</table></div>`;
+      `<div class="table-wrap"><table class="bp-table">${head}<tbody>${rows}</tbody></table></div>`;
   }
 
   function addEntry(entry) {
