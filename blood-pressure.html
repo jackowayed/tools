@@ -308,6 +308,11 @@
     color: #a08f80;
     letter-spacing: -0.01em;
   }
+  table.bp-table td.cell-pill {
+    text-align: left;
+    color: #5b6470;
+    font-weight: 600;
+  }
   table.bp-table tr.col-green  td { background: #e4f4ea; }
   table.bp-table tr.col-yellow td { background: #fbf1d0; }
   table.bp-table tr.col-red    td { background: #f7ddd9; }
@@ -480,25 +485,34 @@
     });
   }
 
-  // Spreadsheet view: one row per reading (newest on top), with
-  // columns for date, systolic, diastolic, pulse. Rows are tinted by category.
+  // Spreadsheet view: one row per entry (newest on top). Blood pressure
+  // readings fill the systolic/diastolic/pulse columns and are tinted by
+  // category; pill entries span those columns with a medication note.
   function renderTable() {
-    const bp = entries
-      .filter(e => e.type === 'bp')
+    const rows = entries
+      .filter(e => e.type === 'bp' || e.type === 'pill')
       .sort((a, b) => b.ts - a.ts);
-    if (bp.length === 0) {
-      tableEl.innerHTML = '<div class="empty">No blood pressure readings yet.</div>';
+    if (rows.length === 0) {
+      tableEl.innerHTML = '<div class="empty">No entries yet.</div>';
       return;
     }
     const head =
       '<thead><tr>' +
       '<th>Date</th><th>Systolic</th><th>Diastolic</th><th>Pulse</th>' +
       '</tr></thead>';
-    let rows = '';
-    bp.forEach(e => {
+    let body = '';
+    rows.forEach(e => {
+      if (e.type === 'pill') {
+        body +=
+          '<tr class="row-pill">' +
+          `<td class="cell-date">${fmtTableDate(e.ts)}</td>` +
+          '<td class="cell-pill" colspan="3">💊 Took pill</td>' +
+          '</tr>';
+        return;
+      }
       const cls = 'col-' + classify(e.systolic, e.diastolic);
       const pulse = Number.isFinite(e.pulse) ? e.pulse : '—';
-      rows +=
+      body +=
         `<tr class="${cls}">` +
         `<td class="cell-date">${fmtTableDate(e.ts)}</td>` +
         `<td class="cell-value">${e.systolic}</td>` +
@@ -507,7 +521,7 @@
         '</tr>';
     });
     tableEl.innerHTML =
-      `<div class="table-wrap"><table class="bp-table">${head}<tbody>${rows}</tbody></table></div>`;
+      `<div class="table-wrap"><table class="bp-table">${head}<tbody>${body}</tbody></table></div>`;
   }
 
   function addEntry(entry) {
