@@ -411,6 +411,14 @@
 
 <div class="card">
   <h2>Medication</h2>
+  <div class="err" id="pillErr"></div>
+  <div class="datetime-toggle">
+    <label class="dt-check" for="useCustomPillTime">
+      <input type="checkbox" id="useCustomPillTime">
+      <span>Set date &amp; time <span class="optional">(defaults to now)</span></span>
+    </label>
+    <input type="datetime-local" id="pillDatetime" disabled>
+  </div>
   <button class="btn btn-pill" id="addPill">💊 Took my pill</button>
 </div>
 
@@ -436,7 +444,10 @@
   const pulEl   = document.getElementById('pulse');
   const dtEl    = document.getElementById('datetime');
   const useCustomEl = document.getElementById('useCustomTime');
+  const pillDtEl = document.getElementById('pillDatetime');
+  const useCustomPillEl = document.getElementById('useCustomPillTime');
   const errEl   = document.getElementById('err');
+  const pillErrEl = document.getElementById('pillErr');
   const feedEl  = document.getElementById('feed');
   const tableEl = document.getElementById('table');
 
@@ -594,16 +605,44 @@
       'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
   }
 
-  // Reveal the datetime picker on demand, pre-filled with the current time.
-  useCustomEl.addEventListener('change', () => {
-    if (useCustomEl.checked) {
-      dtEl.disabled = false;
-      if (!dtEl.value) dtEl.value = toLocalInputValue(new Date());
-      dtEl.focus();
-    } else {
-      dtEl.disabled = true;
+  // Reveal a datetime picker on demand, pre-filled with the current time.
+  function wireDateTimeToggle(checkboxEl, inputEl) {
+    checkboxEl.addEventListener('change', () => {
+      if (checkboxEl.checked) {
+        inputEl.disabled = false;
+        if (!inputEl.value) inputEl.value = toLocalInputValue(new Date());
+        inputEl.focus();
+      } else {
+        inputEl.disabled = true;
+      }
+    });
+  }
+  wireDateTimeToggle(useCustomEl, dtEl);
+  wireDateTimeToggle(useCustomPillEl, pillDtEl);
+
+  // Resolve the timestamp for an entry: the picked time when the toggle is on,
+  // otherwise undefined (meaning "use the current time"). Returns null on a
+  // bad/empty custom value after reporting the problem via errTarget.
+  function resolveTimestamp(checkboxEl, inputEl, errTarget) {
+    if (!checkboxEl.checked) return undefined;
+    if (inputEl.value === '') {
+      errTarget.textContent = 'Enter a date and time, or uncheck to use the current time.';
+      return null;
     }
-  });
+    const parsed = new Date(inputEl.value).getTime();
+    if (!Number.isFinite(parsed)) {
+      errTarget.textContent = 'Please enter a valid date and time.';
+      return null;
+    }
+    return parsed;
+  }
+
+  // Clear a datetime toggle back to its default (current time) state.
+  function resetDateTimeToggle(checkboxEl, inputEl) {
+    inputEl.value = '';
+    inputEl.disabled = true;
+    checkboxEl.checked = false;
+  }
 
   document.getElementById('addReading').addEventListener('click', () => {
     errEl.textContent = '';
@@ -628,31 +667,22 @@
       }
       entry.pulse = p;
     }
-    let ts;
-    if (useCustomEl.checked) {
-      if (dtEl.value === '') {
-        errEl.textContent = 'Enter a date and time, or uncheck to use the current time.';
-        return;
-      }
-      const parsed = new Date(dtEl.value).getTime();
-      if (!Number.isFinite(parsed)) {
-        errEl.textContent = 'Please enter a valid date and time.';
-        return;
-      }
-      ts = parsed;
-    }
+    const ts = resolveTimestamp(useCustomEl, dtEl, errEl);
+    if (ts === null) return;
     addEntry(entry, ts);
     sysEl.value = '';
     diaEl.value = '';
     pulEl.value = '';
-    dtEl.value = '';
-    dtEl.disabled = true;
-    useCustomEl.checked = false;
+    resetDateTimeToggle(useCustomEl, dtEl);
     sysEl.focus();
   });
 
   document.getElementById('addPill').addEventListener('click', () => {
-    addEntry({ type: 'pill' });
+    pillErrEl.textContent = '';
+    const ts = resolveTimestamp(useCustomPillEl, pillDtEl, pillErrEl);
+    if (ts === null) return;
+    addEntry({ type: 'pill' }, ts);
+    resetDateTimeToggle(useCustomPillEl, pillDtEl);
   });
 
   document.querySelectorAll('.tab').forEach(tab => {
@@ -685,6 +715,9 @@
   });
   dtEl.addEventListener('keydown', (ev) => {
     if (ev.key === 'Enter') document.getElementById('addReading').click();
+  });
+  pillDtEl.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter') document.getElementById('addPill').click();
   });
 
   render();
