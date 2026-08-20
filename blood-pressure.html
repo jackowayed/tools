@@ -364,11 +364,11 @@
 <div class="feed">
   <div class="feed-title">History</div>
   <div class="tabs">
-    <button class="tab active" data-view="list" id="tabList">List</button>
-    <button class="tab" data-view="table" id="tabTable">Table</button>
+    <button class="tab" data-view="list" id="tabList">List</button>
+    <button class="tab active" data-view="table" id="tabTable">Table</button>
   </div>
-  <div id="feed"></div>
-  <div id="table" style="display:none"></div>
+  <div id="feed" style="display:none"></div>
+  <div id="table"></div>
 </div>
 
 <footer>
@@ -385,7 +385,7 @@
   const feedEl  = document.getElementById('feed');
   const tableEl = document.getElementById('table');
 
-  let currentView = 'list';
+  let currentView = 'table';
 
   function load() {
     try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; }
@@ -431,13 +431,13 @@
     return `${date} <strong>${time}</strong>`;
   }
 
-  // Full date + 24-hour time for a table row's date cell.
+  // Full date + 12-hour (am/pm) time for a table row's date cell.
   function fmtTableDate(ts) {
     const d = new Date(ts);
     const date = d.toLocaleDateString(undefined, {
       weekday: 'short', month: 'short', day: 'numeric', year: 'numeric'
     });
-    const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
+    const time = d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', hour12: true });
     return `${date}<span class="t">${time}</span>`;
   }
 
