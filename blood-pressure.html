@@ -105,6 +105,52 @@
   input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
   input[type=number]:focus { outline: none; border-color: #c0392b; }
 
+  .datetime-toggle {
+    margin-bottom: 1rem;
+  }
+
+  .dt-check {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: #777;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+    margin-bottom: 0.5rem;
+  }
+
+  .dt-check input[type=checkbox] {
+    width: 1.05rem;
+    height: 1.05rem;
+    accent-color: #c0392b;
+    cursor: pointer;
+  }
+
+  .dt-check .optional {
+    font-weight: 500;
+    color: #aaa;
+    letter-spacing: 0;
+  }
+
+  input[type=datetime-local] {
+    width: 100%;
+    padding: 0.6rem;
+    font-size: 1rem;
+    font-weight: 600;
+    border: 2px solid #e0d8d0;
+    border-radius: 0.6rem;
+    background: #faf7f4;
+    color: #1a1a1a;
+    font-family: inherit;
+  }
+  input[type=datetime-local]:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+  input[type=datetime-local]:focus { outline: none; border-color: #c0392b; }
+
   .slash {
     font-size: 1.6rem;
     font-weight: 300;
@@ -353,11 +399,26 @@
     </div>
     <div class="pulse-unit">bpm</div>
   </div>
+  <div class="datetime-toggle">
+    <label class="dt-check" for="useCustomTime">
+      <input type="checkbox" id="useCustomTime">
+      <span>Set date &amp; time <span class="optional">(defaults to now)</span></span>
+    </label>
+    <input type="datetime-local" id="datetime" disabled>
+  </div>
   <button class="btn btn-bp" id="addReading">Add reading</button>
 </div>
 
 <div class="card">
   <h2>Medication</h2>
+  <div class="err" id="pillErr"></div>
+  <div class="datetime-toggle">
+    <label class="dt-check" for="useCustomPillTime">
+      <input type="checkbox" id="useCustomPillTime">
+      <span>Set date &amp; time <span class="optional">(defaults to now)</span></span>
+    </label>
+    <input type="datetime-local" id="pillDatetime" disabled>
+  </div>
   <button class="btn btn-pill" id="addPill">💊 Took my pill</button>
 </div>
 
@@ -381,7 +442,12 @@
   const sysEl   = document.getElementById('systolic');
   const diaEl   = document.getElementById('diastolic');
   const pulEl   = document.getElementById('pulse');
+  const dtEl    = document.getElementById('datetime');
+  const useCustomEl = document.getElementById('useCustomTime');
+  const pillDtEl = document.getElementById('pillDatetime');
+  const useCustomPillEl = document.getElementById('useCustomPillTime');
   const errEl   = document.getElementById('err');
+  const pillErrEl = document.getElementById('pillErr');
   const feedEl  = document.getElementById('feed');
   const tableEl = document.getElementById('table');
 
@@ -524,12 +590,58 @@
       `<div class="table-wrap"><table class="bp-table">${head}<tbody>${body}</tbody></table></div>`;
   }
 
-  function addEntry(entry) {
+  function addEntry(entry, ts) {
     entry.id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-    entry.ts = Date.now();
+    entry.ts = (typeof ts === 'number' && Number.isFinite(ts)) ? ts : Date.now();
     entries.push(entry);
     save(entries);
     render();
+  }
+
+  // Format a Date as the value a datetime-local input expects (local time).
+  function toLocalInputValue(d) {
+    const pad = n => String(n).padStart(2, '0');
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) +
+      'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+  }
+
+  // Reveal a datetime picker on demand, pre-filled with the current time.
+  function wireDateTimeToggle(checkboxEl, inputEl) {
+    checkboxEl.addEventListener('change', () => {
+      if (checkboxEl.checked) {
+        inputEl.disabled = false;
+        if (!inputEl.value) inputEl.value = toLocalInputValue(new Date());
+        inputEl.focus();
+      } else {
+        inputEl.disabled = true;
+      }
+    });
+  }
+  wireDateTimeToggle(useCustomEl, dtEl);
+  wireDateTimeToggle(useCustomPillEl, pillDtEl);
+
+  // Resolve the timestamp for an entry: the picked time when the toggle is on,
+  // otherwise undefined (meaning "use the current time"). Returns null on a
+  // bad/empty custom value after reporting the problem via errTarget.
+  function resolveTimestamp(checkboxEl, inputEl, errTarget) {
+    if (!checkboxEl.checked) return undefined;
+    if (inputEl.value === '') {
+      errTarget.textContent = 'Enter a date and time, or uncheck to use the current time.';
+      return null;
+    }
+    const parsed = new Date(inputEl.value).getTime();
+    if (!Number.isFinite(parsed)) {
+      errTarget.textContent = 'Please enter a valid date and time.';
+      return null;
+    }
+    return parsed;
+  }
+
+  // Clear a datetime toggle back to its default (current time) state.
+  function resetDateTimeToggle(checkboxEl, inputEl) {
+    inputEl.value = '';
+    inputEl.disabled = true;
+    checkboxEl.checked = false;
   }
 
   document.getElementById('addReading').addEventListener('click', () => {
@@ -555,15 +667,22 @@
       }
       entry.pulse = p;
     }
-    addEntry(entry);
+    const ts = resolveTimestamp(useCustomEl, dtEl, errEl);
+    if (ts === null) return;
+    addEntry(entry, ts);
     sysEl.value = '';
     diaEl.value = '';
     pulEl.value = '';
+    resetDateTimeToggle(useCustomEl, dtEl);
     sysEl.focus();
   });
 
   document.getElementById('addPill').addEventListener('click', () => {
-    addEntry({ type: 'pill' });
+    pillErrEl.textContent = '';
+    const ts = resolveTimestamp(useCustomPillEl, pillDtEl, pillErrEl);
+    if (ts === null) return;
+    addEntry({ type: 'pill' }, ts);
+    resetDateTimeToggle(useCustomPillEl, pillDtEl);
   });
 
   document.querySelectorAll('.tab').forEach(tab => {
@@ -593,6 +712,12 @@
   });
   pulEl.addEventListener('keydown', (ev) => {
     if (ev.key === 'Enter') document.getElementById('addReading').click();
+  });
+  dtEl.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter') document.getElementById('addReading').click();
+  });
+  pillDtEl.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter') document.getElementById('addPill').click();
   });
 
   render();
