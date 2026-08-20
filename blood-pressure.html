@@ -434,6 +434,7 @@
 
 <script>
   const STORAGE_KEY = 'bloodPressureLog';
+  const REJECTED_KEY = 'bloodPressureLog.rejected';
 
   const sysEl   = document.getElementById('systolic');
   const diaEl   = document.getElementById('diastolic');
@@ -477,12 +478,45 @@
     return clean;
   }
 
+  // Preserve unsalvageable data in a separate quarantine key instead of
+  // discarding it. load() keeps only entries it can validate, and the next
+  // save() overwrites storage with that set -- so anything dropped would be
+  // lost for good. Stashing the raw rejects here keeps a bad validation rule
+  // (or a corrupt blob) recoverable. Deduped by serialized content so
+  // repeated loads before the next save don't pile up copies.
+  function quarantine(rejected) {
+    if (!rejected.length) return;
+    let prior = [];
+    try {
+      const raw = JSON.parse(localStorage.getItem(REJECTED_KEY));
+      if (Array.isArray(raw)) prior = raw;
+    } catch {}
+    const seen = new Set(prior.map(r => JSON.stringify(r.entry)));
+    const now = Date.now();
+    for (const entry of rejected) {
+      const key = JSON.stringify(entry);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      prior.push({ quarantinedAt: now, entry });
+    }
+    try { localStorage.setItem(REJECTED_KEY, JSON.stringify(prior)); } catch {}
+  }
+
   function load() {
+    const rawStr = localStorage.getItem(STORAGE_KEY);
+    if (rawStr == null) return [];
     let raw;
-    try { raw = JSON.parse(localStorage.getItem(STORAGE_KEY)); }
-    catch { return []; }
-    if (!Array.isArray(raw)) return [];
-    return raw.map(sanitizeEntry).filter(Boolean);
+    try { raw = JSON.parse(rawStr); }
+    catch { quarantine([rawStr]); return []; }
+    if (!Array.isArray(raw)) { quarantine([raw]); return []; }
+    const kept = [], rejected = [];
+    for (const e of raw) {
+      const clean = sanitizeEntry(e);
+      if (clean) kept.push(clean);
+      else rejected.push(e);
+    }
+    quarantine(rejected);
+    return kept;
   }
 
   function save(entries) {
