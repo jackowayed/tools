@@ -435,7 +435,7 @@
   function fmtTableDate(ts) {
     const d = new Date(ts);
     const date = d.toLocaleDateString(undefined, {
-      weekday: 'short', month: 'short', day: 'numeric', year: 'numeric'
+      month: 'short', day: 'numeric', year: 'numeric'
     });
     const time = d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', hour12: true });
     return `${date}<span class="t">${time}</span>`;
