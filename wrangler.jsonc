@@ -1,0 +1,28 @@
+{
+  // Cloudflare Workers configuration for the tools site.
+  // Docs: https://developers.cloudflare.com/workers/static-assets/
+  "name": "tools",
+  "main": "./worker/index.js",
+  "compatibility_date": "2026-08-22",
+
+  // Serve the repo root as static assets (the .html tool pages live here).
+  // `.assetsignore` keeps build scripts, the Worker, and repo metadata out of
+  // the upload. The Worker only runs for requests that don't match a file
+  // (e.g. /api/daily_puzzle/*, which it proxies upstream).
+  "assets": {
+    "directory": ".",
+    "binding": "ASSETS",
+    // Serve /foo.html directly (200) like Netlify did, instead of redirecting
+    // to an extensionless URL — the homepage links point at .html files.
+    "html_handling": "none",
+    "not_found_handling": "404-page",
+    // Run the Worker first (before asset/404 routing) only for the two paths it
+    // owns: the homepage rewrite ("/" -> index.html) and the puzzle proxy.
+    // Everything else stays asset-first, so .html files serve directly.
+    "run_worker_first": ["/", "/api/daily_puzzle/*"]
+  },
+
+  "observability": {
+    "enabled": true
+  }
+}

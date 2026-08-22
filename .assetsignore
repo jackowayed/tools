@@ -1,0 +1,21 @@
+# Files in the asset directory (repo root) to NOT upload as static assets.
+# https://developers.cloudflare.com/workers/static-assets/binding/#ignoring-assets
+# NOTE: a Netlify-style `_redirects` file must NOT live here. Workers parses it
+# as redirect config (even if listed below), and its external `200` proxy rule
+# is rejected by the API. The Worker in ./worker/index.js does that proxy.
+.DS_Store
+.git
+.github
+.gitignore
+.assetsignore
+node_modules
+.wrangler
+__pycache__
+*.pyc
+*.py
+build.sh
+README.md
+wrangler.jsonc
+worker
+package.json
+package-lock.json
