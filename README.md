@@ -25,6 +25,25 @@ There are no manifests to maintain and no third-party dependencies — a tool
 appears on the homepage as soon as you drop its `.html` file in this
 directory.
 
+## API proxy (Cloudflare Pages)
+
+The Cryptic Helper (`cryptic-scratchpad.html`) fetches the day's puzzle from
+`/api/daily_puzzle/*`, which is proxied server-side to
+[MinuteCryptic](https://www.minutecryptic.com) so the browser never makes a
+cross-origin request (dodging CORS).
+
+This used to be a Netlify `_redirects` rewrite:
+
+```
+/api/daily_puzzle/*  https://www.minutecryptic.com/api/daily_puzzle/:splat  200
+```
+
+Cloudflare Pages' `_redirects` only supports 3xx redirects to external URLs,
+not 200 rewrites, so the proxy now lives in a
+[Pages Function](https://developers.cloudflare.com/pages/functions/) at
+`functions/api/daily_puzzle/[[path]].js`. The repo root is served as the
+static site; anything under `functions/` becomes a serverless route.
+
 ### Automatic rebuilds
 
 A GitHub Actions workflow (`.github/workflows/build.yml`) runs `./build.sh`
