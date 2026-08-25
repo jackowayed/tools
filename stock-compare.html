@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>Stock Compare</title>
+  <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+
+<body>
+  <h1>Stock Quotes and Graphs</h1>
+  <p>Compare the performance of stocks over time.</p>
+  <p>If you comma separate single securities, eg. <code>SPY,QQQ</code>, all prices are normalized, with the first day
+    shown being translated to a price of 100.</p>
+  <p>If you type a ratio eg. <code>SPY/QQQ</code>, we do not normalize.</p>
+  <form id="form">
+    <label for="symbols">Stock Symbols (comma-separated): </label>
+    <input type="text" id="symbols" placeholder="AAPL, SPY" autofocus>
+    <label for="range">Time Range: </label>
+    <select id="range">
+      <option value="30">1 Month</option>
+      <option value="90">3 Months</option>
+      <option value="180">6 Months</option>
+      <option value="365" selected>12 Months</option>
+      <option value="730">24 Months</option>
+      <option value="1096">36 Months</option>
+      <option value="1826">60 Months</option>
+    </select>
+    <input type="submit">Fetch and Graph</button>
+  </form>
+  <canvas id="stockChart"></canvas>
+
+  <script>
+    function daysAgo(date) {
+      const now = new Date();
+      const diff = now - date;
+      const r = diff / (1000 * 60 * 60 * 24);
+      return r;
+    }
+
+    function normalize(prices) {
+      const firstPrice = prices[0];
+      for (let i = 0; i < prices.length; i++) {
+        prices[i] = prices[i] / firstPrice * 100;
+      }
+    }
+
+    const fetchCache = new Map();
+    async function cachedFetch(symbol) {
+      if (!fetchCache.has(symbol)) {
+        const response = await axios.get(`/api/quote-timeseries?symbol=${symbol}`);
+        fetchCache.set(symbol, response.data['Time Series (Daily)']);
+      }
+      return fetchCache.get(symbol);
+    }
+
+    async function extractPrices(apiData, range) {
+      const labels = [];
+      const prices = [];
+
+      for (let date in apiData) {
+        labels.push(date);
+        prices.push(parseFloat(apiData[date]['4. close']));
+        if (daysAgo(new Date(date)) > (range + 1)) break;
+      }
+
+      labels.reverse();
+      prices.reverse();
+      return { prices, labels };
+    }
+
+    let stockChart;
+    async function fetchAndGraph() {
+      const symbols = document.getElementById('symbols').value.split(',').map(symbol => symbol.trim());
+      const range = parseInt(document.getElementById('range').value);
+
+      if (stockChart) {
+        stockChart.destroy();
+      }
+      const ctx = document.getElementById('stockChart').getContext('2d');
+      stockChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: [],
+          datasets: []
+        }
+      });
+
+      for (const symbol of symbols) {
+        let ratio = false;
+        let numerator;
+        let denominator;
+        if (symbol.indexOf("/") != -1) {
+          let parts = symbol.split("/");
+          console.assert(parts.length == 2, "only one / per series")
+          ratio = true;
+          numerator = parts[0];
+          denominator = parts[1];
+        }
+        let prices;
+        let labels;
+        if (ratio) {
+          const numerData = await cachedFetch(numerator);
+          let numerPrices;
+          ({ prices: numerPrices, labels } = await extractPrices(numerData, range));
+          const denomData = await cachedFetch(denominator);
+          let denomPrices;
+          ({ prices: denomPrices, labels } = await extractPrices(denomData, range));
+          console.assert(numerPrices.length === denomPrices.length);
+          prices = []
+          for (let i = 0; i < denomPrices.length; i++) {
+            prices.push(numerPrices[i] / denomPrices[i]);
+          }
+        } else {
+          const data = await cachedFetch(symbol);
+          ({ prices, labels } = await extractPrices(data, range));
+          normalize(prices);
+        }
+        stockChart.data.labels = labels;
+        stockChart.data.datasets.push({
+          label: `${symbol} Stock Price`,
+          data: prices,
+          borderWidth: 1,
+          fill: false
+        });
+      }
+
+      stockChart.update();
+    }
+    function getQueryParam(param) {
+      const urlParams = new URLSearchParams(window.location.search);
+      return urlParams.get(param);
+    }
+    window.onload = function () {
+      document.getElementById("form").addEventListener("submit", event => {
+        event.preventDefault();
+        fetchAndGraph();
+      });
+      const urlQuotes = getQueryParam('quotes');
+      if (urlQuotes) {
+        document.getElementById('symbols').value = urlQuotes;
+      }
+    };
+  </script>
+</body>
+
+</html>

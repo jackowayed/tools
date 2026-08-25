@@ -16,10 +16,11 @@
     // to an extensionless URL — the homepage links point at .html files.
     "html_handling": "none",
     "not_found_handling": "404-page",
-    // Run the Worker first (before asset/404 routing) only for the two paths it
-    // owns: the homepage rewrite ("/" -> index.html) and the puzzle proxy.
-    // Everything else stays asset-first, so .html files serve directly.
-    "run_worker_first": ["/", "/api/daily_puzzle/*"]
+    // Run the Worker first (before asset/404 routing) only for the paths it
+    // owns: the homepage rewrite ("/" -> index.html), the puzzle proxy, and the
+    // stock quote proxy. Everything else stays asset-first, so .html files
+    // serve directly.
+    "run_worker_first": ["/", "/api/daily_puzzle/*", "/api/quote-timeseries"]
   },
 
   "observability": {
