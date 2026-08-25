@@ -32,3 +32,4 @@ on every push to `main` and commits the regenerated `index.html` and
 `colophon.html` back to the repo, so you don't have to build them by hand.
 It skips its own commits to avoid a loop. You can still run `./build.sh`
 locally to preview changes before pushing.
+
