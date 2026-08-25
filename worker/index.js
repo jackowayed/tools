@@ -44,16 +44,22 @@ export default {
   },
 };
 
+// Basic ticker shape (letters, digits, dot, dash) so we don't forward junk.
+const SYMBOL_RE = /^[A-Z0-9.\-]{1,15}$/;
+
 async function handleQuote(url, env, ctx) {
-  const symbol = (url.searchParams.get("symbol") || "").trim();
+  const symbol = (url.searchParams.get("symbol") || "").trim().toUpperCase();
   if (!symbol) {
-    return jsonError("Missing symbol", 400);
+    return jsonError("Missing symbol", 400, "bad_request");
+  }
+  if (!SYMBOL_RE.test(symbol)) {
+    return jsonError(`Invalid symbol: "${symbol}"`, 400, "bad_request");
   }
 
   // Cache key normalized on the symbol so casing/whitespace don't fragment it.
   const cache = caches.default;
   const cacheKey = new Request(
-    `https://cache.internal/quote?symbol=${encodeURIComponent(symbol.toUpperCase())}`,
+    `https://cache.internal/quote?symbol=${encodeURIComponent(symbol)}`,
     { method: "GET" },
   );
 
@@ -62,37 +68,54 @@ async function handleQuote(url, env, ctx) {
     return cached;
   }
 
-  let body;
+  let text;
   try {
     const upstream = await fetch(
       `https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&outputsize=compact&symbol=${encodeURIComponent(symbol)}&apikey=${env.ALPHA_VANTAGE_KEY}`,
     );
-    body = await upstream.text();
+    text = await upstream.text();
   } catch (error) {
     console.error(error);
-    return jsonError("An error occurred", 500);
+    return jsonError("Could not reach the data provider.", 502, "upstream");
   }
 
-  // Alpha Vantage returns HTTP 200 even for rate-limit / error payloads
-  // (a "Note"/"Information" object with no time series). Only cache real data.
-  const isValidData = body.includes("Time Series (Daily)");
+  // Alpha Vantage returns HTTP 200 even for rate-limit / error payloads (a
+  // "Note"/"Information"/"Error Message" object with no time series). Translate
+  // those into real status codes so the client can react, and only cache real
+  // data.
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    return jsonError("Unexpected response from the data provider.", 502, "upstream");
+  }
 
-  const response = new Response(body, {
-    headers: {
-      "content-type": "application/json",
-      "cache-control": isValidData ? `public, max-age=${QUOTE_CACHE_SECONDS}` : "no-store",
-    },
-  });
-
-  if (isValidData) {
+  if (data["Time Series (Daily)"]) {
+    const response = new Response(text, {
+      headers: {
+        "content-type": "application/json",
+        "cache-control": `public, max-age=${QUOTE_CACHE_SECONDS}`,
+      },
+    });
     ctx.waitUntil(cache.put(cacheKey, response.clone()));
+    return response;
   }
-  return response;
+
+  if (data["Note"] || data["Information"]) {
+    // Rate limit reached, or the endpoint/outputsize now requires premium.
+    return jsonError(data["Note"] || data["Information"], 429, "rate_limit");
+  }
+
+  if (data["Error Message"]) {
+    return jsonError(`No data for "${symbol}". ${data["Error Message"]}`, 404, "not_found");
+  }
+
+  return jsonError("Unexpected response from the data provider.", 502, "upstream");
 }
 
-function jsonError(message, status) {
-  return new Response(JSON.stringify({ error: message }), {
+function jsonError(message, status, kind) {
+  return new Response(JSON.stringify({ error: message, kind }), {
     status,
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", "cache-control": "no-store" },
   });
 }
