@@ -438,11 +438,11 @@
 <div class="feed">
   <div class="feed-title">History</div>
   <div class="tabs">
-    <button class="tab active" data-view="list" id="tabList">List</button>
-    <button class="tab" data-view="table" id="tabTable">Table</button>
+    <button class="tab" data-view="list" id="tabList">List</button>
+    <button class="tab active" data-view="table" id="tabTable">Table</button>
   </div>
-  <div id="feed"></div>
-  <div id="table" style="display:none"></div>
+  <div id="feed" style="display:none"></div>
+  <div id="table"></div>
 </div>
 
 <footer>
@@ -465,7 +465,7 @@
   const feedEl  = document.getElementById('feed');
   const tableEl = document.getElementById('table');
 
-  let currentView = 'list';
+  let currentView = 'table';
 
   function makeId() {
     return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -649,7 +649,7 @@
     }
     const head =
       '<thead><tr>' +
-      '<th>Date</th><th>Systolic</th><th>Diastolic</th><th>Pulse</th>' +
+      '<th>Date</th><th>SYS</th><th>DIA</th><th>Pulse</th>' +
       '</tr></thead>';
     let body = '';
     rows.forEach(e => {
