@@ -438,8 +438,8 @@
 <div class="feed">
   <div class="feed-title">History</div>
   <div class="tabs">
-    <button class="tab" data-view="list" id="tabList">List</button>
     <button class="tab active" data-view="table" id="tabTable">Table</button>
+    <button class="tab" data-view="list" id="tabList">List</button>
   </div>
   <div id="feed" style="display:none"></div>
   <div id="table"></div>
@@ -584,7 +584,7 @@
   function fmtTableDate(ts) {
     const d = new Date(ts);
     const date = d.toLocaleDateString(undefined, {
-      weekday: 'short', month: 'short', day: 'numeric', year: 'numeric'
+      month: 'short', day: 'numeric'
     });
     const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
     return `${date}<span class="t">${time}</span>`;
