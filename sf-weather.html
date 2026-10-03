@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SF Weather</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+    background: #f5f0eb;
+    color: #1a1a1a;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 100vh;
+    padding: 2rem 1rem 4rem;
+    gap: 1.25rem;
+  }
+  h1 { font-size: 1.5rem; font-weight: 800; letter-spacing: -0.01em; }
+  .sub { color: #666; font-size: 0.95rem; text-align: center; max-width: 560px; }
+  .sub code { background: #e8e0d8; padding: 0.05rem 0.35rem; border-radius: 0.3rem; font-size: 0.85em; }
+  .card {
+    background: #fff;
+    border-radius: 1rem;
+    padding: 1.5rem;
+    width: 100%;
+    max-width: 560px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+  }
+  #aqi-card { text-align: center; padding: 2rem 1.5rem; }
+  #aqi-value {
+    font-size: 5rem;
+    font-weight: 800;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+  #aqi-label { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.14em; color: #777; font-weight: 700; margin-bottom: 0.5rem; }
+  #aqi-category {
+    display: inline-block;
+    margin-top: 0.75rem;
+    padding: 0.3rem 0.9rem;
+    border-radius: 999px;
+    font-weight: 700;
+    font-size: 0.95rem;
+    color: #fff;
+  }
+  #status { color: #666; font-size: 0.95rem; }
+  #status.error { color: #a93226; }
+  .meta { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem 1rem; margin-top: 1rem; text-align: left; }
+  .meta dt { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: #888; font-weight: 700; }
+  .meta dd { font-size: 0.95rem; font-weight: 600; }
+  .row { display: flex; gap: 0.6rem; justify-content: center; flex-wrap: wrap; }
+  button {
+    background: #1a1a1a;
+    color: #fff;
+    border: none;
+    border-radius: 999px;
+    padding: 0.6rem 1.4rem;
+    font-size: 0.9rem;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  button.secondary { background: #e8e0d8; color: #1a1a1a; }
+  button:disabled { opacity: 0.5; cursor: default; }
+  button:hover:not(:disabled) { filter: brightness(1.1); }
+  .note { font-size: 0.82rem; color: #777; max-width: 560px; line-height: 1.5; }
+  .note a { color: inherit; }
+  #nearby { width: 100%; border-collapse: collapse; font-size: 0.85rem; margin-top: 0.75rem; }
+  #nearby th { text-align: left; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; color: #888; padding: 0.3rem 0.4rem; border-bottom: 1px solid #eee; }
+  #nearby td { padding: 0.35rem 0.4rem; border-bottom: 1px solid #f0ebe5; font-variant-numeric: tabular-nums; }
+  h2 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.12em; color: #888; margin-bottom: 0.5rem; }
+</style>
+</head>
+<body>
+
+<h1>SF Weather</h1>
+<p class="sub">Live AQI near <strong>San Francisco City Hall</strong> (37.7793, −122.4192), estimated from nearby <strong>PurpleAir</strong> sensors.</p>
+
+<div class="card" id="aqi-card">
+  <div id="aqi-label">US EPA AQI (PM2.5)</div>
+  <div id="aqi-value">–</div>
+  <div><span id="aqi-category" style="background:#999">Loading…</span></div>
+  <p id="status" style="margin-top:1rem">Finding the nearest PurpleAir sensor…</p>
+</div>
+
+<div class="row">
+  <button id="refresh">Refresh</button>
+  <button id="demo" class="secondary" hidden>Load sample data</button>
+</div>
+
+<div class="card" id="details-card" hidden>
+  <h2>Nearest sensor</h2>
+  <dl class="meta">
+    <div><dt>Sensor</dt><dd id="d-name">–</dd></div>
+    <div><dt>Distance to City Hall</dt><dd id="d-dist">–</dd></div>
+    <div><dt>Corrected PM2.5</dt><dd id="d-pm">–</dd></div>
+    <div><dt>Raw PM2.5 (CF=1 / ATM)</dt><dd id="d-raw">–</dd></div>
+    <div><dt>Humidity</dt><dd id="d-rh">–</dd></div>
+    <div><dt>Last seen</dt><dd id="d-seen">–</dd></div>
+  </dl>
+  <h2 style="margin-top:1.25rem">Nearest sensors</h2>
+  <table id="nearby">
+    <thead><tr><th>Sensor</th><th>Dist</th><th>PM2.5*</th><th>AQI</th></tr></thead>
+    <tbody id="nearby-body"></tbody>
+  </table>
+</div>
+
+<p class="note">
+  Method: queries <code>/api/purpleair-sensors</code> (a same-origin proxy that keeps the
+  PurpleAir read key server-side) for outdoor sensors in a ~2&nbsp;km box around City Hall,
+  picks the nearest one with fresh data, applies the US EPA correction to
+  <code>pm2.5_cf_1</code> + humidity, then converts to AQI with the EPA PM2.5 breakpoints.
+  *PM2.5 is EPA-corrected µg/m³. Map: <a href="https://map.purpleair.com/?opt=1/mAQI/a10/cC0#11/37.7793/-122.4192">PurpleAir map at City Hall</a>.
+</p>
+
+<script>
+  const CITY_HALL = { lat: 37.7793, lon: -122.4192 };
+  const BBOX = { nwlng: -122.4392, nwlat: 37.7993, selng: -122.3992, selat: 37.7593 };
+
+  const aqiValue = document.getElementById('aqi-value');
+  const aqiCategory = document.getElementById('aqi-category');
+  const statusEl = document.getElementById('status');
+  const refreshBtn = document.getElementById('refresh');
+  const demoBtn = document.getElementById('demo');
+  const detailsCard = document.getElementById('details-card');
+
+  // US EPA PM2.5 breakpoints: [Cp_low, Cp_high, I_low, I_high]
+  const BREAKPOINTS = [
+    [0.0, 12.0, 0, 50],
+    [12.1, 35.4, 51, 100],
+    [35.5, 55.4, 101, 150],
+    [55.5, 150.4, 151, 200],
+    [150.5, 250.4, 201, 300],
+    [250.5, 350.4, 301, 400],
+    [350.5, 500.4, 401, 500],
+  ];
+
+  function pm25ToAqi(pm) {
+    if (!Number.isFinite(pm) || pm < 0) return null;
+    if (pm > 500.4) return 500;
+    // EPA truncates PM to 1 decimal place before lookup.
+    const c = Math.floor(pm * 10) / 10;
+    for (const [cLow, cHigh, iLow, iHigh] of BREAKPOINTS) {
+      if (c <= cHigh) {
+        const aqi = ((iHigh - iLow) / (cHigh - cLow)) * (c - cLow) + iLow;
+        return Math.round(aqi);
+      }
+    }
+    return 500;
+  }
+
+  function aqiCategoryInfo(aqi) {
+    if (aqi === null) return { label: 'Unknown', color: '#999' };
+    if (aqi <= 50) return { label: 'Good', color: '#00a000' };
+    if (aqi <= 100) return { label: 'Moderate', color: '#d4a017' };
+    if (aqi <= 150) return { label: 'Unhealthy for Sensitive Groups', color: '#e36d00' };
+    if (aqi <= 200) return { label: 'Unhealthy', color: '#c0392b' };
+    if (aqi <= 300) return { label: 'Very Unhealthy', color: '#6d28d9' };
+    return { label: 'Hazardous', color: '#6e0d1a' };
+  }
+
+  // US EPA (2021) correction for PurpleAir, using pm2.5_cf_1 avgAB + RH.
+  // For typical SF values (cf1 < 343) this is 0.52*cf1 - 0.086*RH + 5.75.
+  function epaCorrectedPm25(cf1, rh) {
+    if (!Number.isFinite(cf1)) return null;
+    const humidity = Number.isFinite(rh) ? rh : 50;
+    let corrected;
+    if (cf1 <= 343) {
+      corrected = 0.52 * cf1 - 0.086 * humidity + 5.75;
+    } else {
+      corrected = 0.46 * cf1 + 3.93e-4 * cf1 * cf1 + 2.97;
+    }
+    return Math.max(0, corrected);
+  }
+
+  function haversineKm(lat1, lon1, lat2, lon2) {
+    const R = 6371;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) ** 2 +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+      Math.sin(dLon / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(a));
+  }
+
+  function timeAgo(tsSeconds) {
+    if (!Number.isFinite(tsSeconds)) return 'unknown';
+    const s = Math.max(0, Math.round(Date.now() / 1000 - tsSeconds));
+    if (s < 60) return s + 's ago';
+    const m = Math.floor(s / 60);
+    if (m < 60) return m + ' min ago';
+    return Math.floor(m / 60) + 'h ' + (m % 60) + 'm ago';
+  }
+
+  function rowsFromPayload(payload) {
+    const fields = payload.fields || [];
+    const data = payload.data || [];
+    return data.map((row) => {
+      const o = {};
+      fields.forEach((f, i) => { o[f] = row[i]; });
+      return o;
+    });
+  }
+
+  function pickSensors(payload) {
+    const sensors = rowsFromPayload(payload)
+      .filter((s) => Number.isFinite(s.latitude) && Number.isFinite(s.longitude))
+      .map((s) => ({
+        ...s,
+        distKm: haversineKm(CITY_HALL.lat, CITY_HALL.lon, s.latitude, s.longitude),
+        corrected: epaCorrectedPm25(s['pm2.5_cf_1'], s.humidity),
+      }))
+      .filter((s) => s.corrected !== null)
+      .sort((a, b) => a.distKm - b.distKm);
+    return sensors;
+  }
+
+  function render(sensors) {
+    if (!sensors.length) {
+      throw new Error('No fresh outdoor sensors in range.');
+    }
+    const best = sensors[0];
+    const aqi = pm25ToAqi(best.corrected);
+    const cat = aqiCategoryInfo(aqi);
+
+    aqiValue.textContent = aqi === null ? '–' : aqi;
+    aqiCategory.textContent = cat.label;
+    aqiCategory.style.background = cat.color;
+    statusEl.classList.remove('error');
+    statusEl.textContent = sensors.length + ' sensor(s) near City Hall · updated just now';
+
+    document.getElementById('d-name').textContent = (best.name || ('#' + best.sensor_index)) + ' (#' + best.sensor_index + ')';
+    document.getElementById('d-dist').textContent = best.distKm.toFixed(2) + ' km';
+    document.getElementById('d-pm').textContent = best.corrected.toFixed(1) + ' µg/m³';
+    document.getElementById('d-raw').textContent =
+      (Number.isFinite(best['pm2.5_cf_1']) ? best['pm2.5_cf_1'].toFixed(1) : '?') + ' / ' +
+      (Number.isFinite(best['pm2.5_atm']) ? best['pm2.5_atm'].toFixed(1) : '?') + ' µg/m³';
+    document.getElementById('d-rh').textContent = Number.isFinite(best.humidity) ? Math.round(best.humidity) + '%' : 'n/a';
+    document.getElementById('d-seen').textContent = timeAgo(best.last_seen);
+    detailsCard.hidden = false;
+
+    const body = document.getElementById('nearby-body');
+    body.innerHTML = '';
+    for (const s of sensors.slice(0, 5)) {
+      const tr = document.createElement('tr');
+      const a = pm25ToAqi(s.corrected);
+      tr.innerHTML = '<td></td><td></td><td></td><td></td>';
+      tr.children[0].textContent = s.name || ('#' + s.sensor_index);
+      tr.children[1].textContent = s.distKm.toFixed(2) + ' km';
+      tr.children[2].textContent = s.corrected.toFixed(1);
+      tr.children[3].textContent = a === null ? '–' : a;
+      if (s === best) tr.style.fontWeight = '700';
+      body.appendChild(tr);
+    }
+  }
+
+  function showError(err) {
+    console.error(err);
+    statusEl.classList.add('error');
+    const msg = err && err.message ? err.message : String(err);
+    if (/API key not configured/i.test(msg)) {
+      statusEl.textContent = 'PurpleAir API key is not configured on the server. Deploy with PURPLEAIR_API_KEY set, or preview with sample data below.';
+    } else {
+      statusEl.textContent = 'Could not load PurpleAir data: ' + msg;
+    }
+    aqiValue.textContent = '–';
+    aqiCategory.textContent = 'Unavailable';
+    aqiCategory.style.background = '#999';
+    demoBtn.hidden = false;
+  }
+
+  async function load() {
+    refreshBtn.disabled = true;
+    statusEl.classList.remove('error');
+    statusEl.textContent = 'Finding the nearest PurpleAir sensor…';
+    aqiCategory.textContent = 'Loading…';
+    try {
+      const qs = new URLSearchParams(BBOX).toString();
+      const res = await fetch('/api/purpleair-sensors?' + qs, { headers: { accept: 'application/json' } });
+      const text = await res.text();
+      let payload;
+      try { payload = JSON.parse(text); } catch { throw new Error('Bad response (HTTP ' + res.status + ')'); }
+      if (!res.ok) throw new Error(payload.error || ('HTTP ' + res.status));
+      render(pickSensors(payload));
+    } catch (err) {
+      showError(err);
+    } finally {
+      refreshBtn.disabled = false;
+    }
+  }
+
+  refreshBtn.addEventListener('click', load);
+
+  // Sample payload so the page (and its AQI math) can be previewed without an API key.
+  demoBtn.addEventListener('click', () => {
+    const now = Math.floor(Date.now() / 1000);
+    render(pickSensors({
+      fields: ['sensor_index', 'name', 'latitude', 'longitude', 'location_type', 'last_seen', 'humidity', 'pm2.5_cf_1', 'pm2.5_atm', 'confidence'],
+      data: [
+        [123456, 'City Hall Demo', 37.7799, -122.4180, 0, now - 90, 62, 8.4, 8.1, 100],
+        [123457, 'Tenderloin Demo', 37.7830, -122.4160, 0, now - 120, 60, 10.2, 9.8, 95],
+      ],
+    }));
+    statusEl.textContent += ' (sample data)';
+  });
+
+  load();
+</script>
+</body>
+</html>
