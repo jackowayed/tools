@@ -594,6 +594,12 @@
   <div id="table"></div>
 </div>
 
+<details class="card settings-card" id="todayPercentiles">
+  <summary>Today’s Percentiles</summary>
+  <div class="settings-note" id="todayPercentilesNote">Set birth date and sex in Settings below to see today’s weight-for-age percentiles.</div>
+  <div id="todayPercentilesTable"></div>
+</details>
+
 <details class="card settings-card" id="babySettings">
   <summary>Age &amp; Sync Settings</summary>
   <div class="settings-row">
@@ -668,6 +674,9 @@ const birthEl = document.getElementById('birthDate');
 const sexGirlBtn = document.getElementById('sexGirl');
 const sexBoyBtn = document.getElementById('sexBoy');
 const settingsSummaryEl = document.getElementById('settingsSummary');
+const todayPercentilesEl = document.getElementById('todayPercentiles');
+const todayPercentilesNoteEl = document.getElementById('todayPercentilesNote');
+const todayPercentilesTableEl = document.getElementById('todayPercentilesTable');
 
 let currentView = 'table';
 
@@ -787,6 +796,18 @@ function zToPercentile(z) {
   const t = 1 / (1 + 0.3275911 * a);
   const y = 1 - (((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-a * a));
   return 50 * (1 + sign * y);
+}
+
+// Invert the same normal CDF used for weigh-in percentiles (5th–95th).
+function percentileToZ(percentile) {
+  if (percentile === 50) return 0;
+  let lower = -4, upper = 4;
+  for (let i = 0; i < 40; i++) {
+    const mid = (lower + upper) / 2;
+    if (zToPercentile(mid) < percentile) lower = mid;
+    else upper = mid;
+  }
+  return (lower + upper) / 2;
 }
 
 function birthTs() {
@@ -942,6 +963,41 @@ function renderSettingsUI() {
   }
 }
 
+function renderTodayPercentiles() {
+  todayPercentilesTableEl.innerHTML = '';
+  const bt = birthTs();
+  if (bt == null || (settings.sex !== 'male' && settings.sex !== 'female')) {
+    todayPercentilesNoteEl.textContent = 'Set birth date and sex in Settings below to see today’s weight-for-age percentiles.';
+    return;
+  }
+  const ageDays = (Date.now() - bt) / 86400000;
+  if (ageDays < 0) {
+    todayPercentilesNoteEl.textContent = 'Today is before the saved birth date.';
+    return;
+  }
+  if (ageDays > WHO_MAX_DAYS) {
+    todayPercentilesNoteEl.textContent = 'WHO weight-for-age percentiles cover ages 0–5 years.';
+    return;
+  }
+  todayPercentilesNoteEl.textContent = `${settings.sex === 'male' ? 'Boy' : 'Girl'} · ${fmtAge(ageDays)} · WHO weight-for-age`;
+  const { l, m, s } = lookupLms(settings.sex === 'male' ? WFA_BOYS : WFA_GIRLS, ageDays);
+  let rows = '';
+  for (let percentile = 5; percentile < 100; percentile += 5) {
+    const z = percentileToZ(percentile);
+    const kg = Math.abs(l) < 1e-9 ? m * Math.exp(s * z) : m * Math.pow(1 + l * s * z, 1 / l);
+    const weight = fmtPrimary(kg);
+    rows += `<tr><td class="cell-pct">${ord(percentile)}</td><td class="cell-value">${escHtml(weight.text)}${weight.unit ? ' ' + escHtml(weight.unit) : ''}</td></tr>`;
+  }
+  todayPercentilesTableEl.innerHTML = `<div class="table-wrap"><table class="w-table"><thead><tr><th scope="col">%ile</th><th scope="col">Weight</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
+todayPercentilesEl.addEventListener('toggle', () => {
+  if (todayPercentilesEl.open) renderTodayPercentiles();
+});
+setInterval(() => {
+  if (!document.hidden && todayPercentilesEl.open) renderTodayPercentiles();
+}, 60000);
+
 function pctCellContent(entry) {
   const r = percentileFor(entry);
   if (r.error === 'setup') return { html: '<span style="color:#aaa">—</span>', title: 'Set birth date and sex for percentiles' };
@@ -965,6 +1021,7 @@ function ageCellContent(entry) {
 
 function render() {
   renderSettingsUI();
+  renderTodayPercentiles();
   renderList();
   renderTable();
   feedEl.style.display = currentView === 'list' ? '' : 'none';
@@ -1342,7 +1399,7 @@ try {
   window.addEventListener('online', () => { void syncEngine.run({ force: true }); });
   window.addEventListener('offline', () => { void refreshFromStorage(); });
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) { void refreshFromStorage(); void syncEngine.run({ force: true }); }
+    if (!document.hidden) { renderTodayPercentiles(); void refreshFromStorage(); void syncEngine.run({ force: true }); }
   });
 } catch (error) {
   errEl.textContent = `Could not open local storage: ${error.message}. Existing data has not been removed.`;
