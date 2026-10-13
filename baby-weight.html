@@ -992,7 +992,7 @@ function renderTable() {
   }
   const head =
     '<thead><tr>' +
-    '<th>Date</th><th>Weight</th><th>Age</th><th>%ile</th><th></th><th>Feed</th>' +
+    '<th>Date</th><th>Weight</th><th>Age</th><th>%ile</th><th>Feed</th><th></th>' +
     '</tr></thead>';
   let body = '';
   rows.forEach(e => {
@@ -1015,8 +1015,8 @@ function renderTable() {
       `<td class="cell-value">${escHtml(p.text)}${p.unit ? ' ' + escHtml(p.unit) : ''}</td>` +
       `<td class="cell-age">${escHtml(ageCellContent(e))}</td>` +
       `<td class="cell-pct" title="${escHtml(pct.title)}">${pct.html}</td>` +
-      `<td><button class="del" title="Delete" data-id="${escHtml(e.id)}">✕</button></td>` +
       ateCell +
+      `<td><button class="del" title="Delete" data-id="${escHtml(e.id)}">✕</button></td>` +
       '</tr>';
   });
   tableEl.innerHTML =

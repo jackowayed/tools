@@ -71,14 +71,15 @@ test('Chromium: collapsed sync settings and compact table follow the entry unit'
   await add(page, 3.1);
   assert.equal(await page.locator('#feedStateLabel').innerText(), '🪶 Before feed');
   await rows(page, 2);
-  assert.deepEqual(await page.locator('#table th').allTextContents(), ['Date', 'Weight', 'Age', '%ile', '', 'Feed']);
+  assert.deepEqual(await page.locator('#table th').allTextContents(), ['Date', 'Weight', 'Age', '%ile', 'Feed', '']);
   assert.deepEqual(await page.locator('#table .cell-value').allTextContents(), ['3.1 kg', '3 kg']);
-  assert.deepEqual(await page.locator('#table tbody td:last-child').allTextContents(), ['+100 g', 'Before']);
+  assert.deepEqual(await page.locator('#table tbody td:nth-last-child(2)').allTextContents(), ['+100 g', 'Before']);
+  assert.equal(await page.locator('#table tbody td:last-child .del').count(), 2);
   assert.equal(await page.locator('#table .alt').count(), 0);
   await page.locator('#unitLb').click();
   await page.waitForFunction(() => document.querySelector('#table .cell-value').textContent.includes('lb'));
   assert.deepEqual(await page.locator('#table .cell-value').allTextContents(), ['6 lb 13.3 oz', '6 lb 9.8 oz']);
-  assert.deepEqual(await page.locator('#table tbody td:last-child').allTextContents(), ['+3.5 oz', 'Before']);
+  assert.deepEqual(await page.locator('#table tbody td:nth-last-child(2)').allTextContents(), ['+3.5 oz', 'Before']);
   await context.close();
 });
 
