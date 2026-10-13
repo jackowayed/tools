@@ -1081,7 +1081,7 @@ function renderTable() {
   }
   const head =
     '<thead><tr>' +
-    '<th>Date</th><th>Weight</th><th>Age</th><th>Percentile</th><th title="Weight change from the previous weigh-in with the same clothing status">Change from<br>previous matching</th><th>Time</th><th>Before/After</th><th aria-label="Actions"></th>' +
+    '<th>Date</th><th>Weight</th><th>Age</th><th>Percentile</th><th>Clothed</th><th title="Weight change from the previous weigh-in with the same clothing status">Change from<br>previous matching</th><th>Time</th><th>Before/After</th><th aria-label="Actions"></th>' +
     '</tr></thead>';
   let body = '';
   rows.forEach((e, index) => {
@@ -1102,6 +1102,7 @@ function renderTable() {
       `<td class="cell-value">${escHtml(p.text)}${p.unit ? ' ' + escHtml(p.unit) : ''}<span class="clothing-status">${e.clothed ? 'Clothed' : 'Naked'}</span></td>` +
       `<td class="cell-age">${escHtml(ageCellContent(e))}</td>` +
       `<td class="cell-pct" title="${escHtml(pct.title)}">${pct.html}</td>` +
+      `<td class="cell-clothed" aria-label="${e.clothed ? 'Clothed' : 'Not clothed'}" title="${e.clothed ? 'Clothed' : 'Not clothed'}">${e.clothed ? '👕' : '✖️'}</td>` +
       `<td class="cell-change">${escHtml(change)}</td>` +
       `<td class="cell-time">${escHtml(fmtTableTime(e.ts))}</td>` +
       `<td class="cell-feed">${e.afterFeed ? 'After' : 'Before'}</td>` +
