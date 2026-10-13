@@ -19,7 +19,9 @@
     // Run the Worker first (before asset/404 routing) only for the paths it
     // owns: the homepage rewrite ("/" -> index.html), the puzzle proxy, the
     // stock quote proxy, and the PurpleAir proxy. Everything else stays
-    // asset-first, so .html files serve directly.
+    // asset-first, so .html files serve directly; extensionless pretty URLs
+    // (e.g. /blood-pressure) fall through to the Worker, which serves the
+    // matching .html asset (see worker/index.js).
     "run_worker_first": ["/", "/api/daily_puzzle/*", "/api/quote-timeseries", "/api/purpleair-sensors"]
   },
 

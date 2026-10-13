@@ -3,7 +3,8 @@
 // Static assets (the .html tool pages, index, colophon, …) are served directly
 // by Cloudflare's asset layer before this code runs. This Worker only handles
 // requests that don't match a static file — in practice, the MinuteCryptic
-// daily-puzzle proxy below, plus a fallback to the assets' 404 handling.
+// daily-puzzle proxy below, Netlify-style pretty URLs (/foo -> /foo.html),
+// plus a fallback to the assets' 404 handling.
 
 const UPSTREAM_ORIGIN = "https://www.minutecryptic.com";
 
@@ -71,6 +72,25 @@ export default {
       return env.ASSETS.fetch(new URL("/index.html", url));
     }
 
+    // Netlify-style pretty URLs: /foo serves /foo.html (both return 200).
+    // With html_handling: "none", only the exact /foo.html path matches an
+    // asset, so extensionless URLs fall through to this Worker. Try the .html
+    // asset before deferring to 404 handling.
+    if (
+      (request.method === "GET" || request.method === "HEAD") &&
+      !url.pathname.startsWith("/api/")
+    ) {
+      const prettyPath = toPrettyUrlAssetPath(url.pathname);
+      if (prettyPath !== null) {
+        const asset = await env.ASSETS.fetch(
+          new URL(prettyPath + url.search, url),
+        );
+        if (asset.status !== 404) {
+          return asset;
+        }
+      }
+    }
+
     // Anything else that reached the Worker didn't match a static asset;
     // defer to the assets layer so its 404 handling applies.
     return env.ASSETS.fetch(request);
@@ -128,6 +148,29 @@ function jsonError(message, status) {
     status,
     headers: { "content-type": "application/json" },
   });
+}
+
+// Map an extensionless pretty URL to its .html asset, or return null when the
+// path shouldn't be rewritten (exact files, API routes, traversal attempts).
+// "/blood-pressure" -> "/blood-pressure.html", "/blood-pressure/" -> same.
+function toPrettyUrlAssetPath(pathname) {
+  if (pathname === "/" || pathname.includes(".")) {
+    return null;
+  }
+  const base =
+    pathname.endsWith("/") && pathname.length > 1
+      ? pathname.slice(0, -1)
+      : pathname;
+  if (
+    base === "" ||
+    base === "/" ||
+    base.includes(".") ||
+    base.includes("//") ||
+    base.includes("..")
+  ) {
+    return null;
+  }
+  return base + ".html";
 }
 
 async function handlePurpleAir(url, env, ctx) {
