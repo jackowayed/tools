@@ -6,6 +6,7 @@
     "test": "node --test tests/*.test.js",
     "dev": "wrangler dev --persist-to ../.tools-sync-state",
     "check": "node --check sync-client.js && node --check sync-protocol.js && node --check worker/sync.js && node --check worker/index.js",
+    "test:browser:install": "playwright-core install --with-deps chromium",
     "test:browser": "node --test tests/sync.browser.js",
     "db:local": "wrangler d1 migrations apply tools-baby-weight-sync --local --persist-to ../.tools-sync-state"
   },

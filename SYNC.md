@@ -138,15 +138,30 @@ browser.
 
 ## Verification
 
+Install the locked Node dependencies and Playwright's matching Chromium build:
+
+```sh
+npm ci
+npm run test:browser:install
+```
+
+The install command also installs Chromium's system dependencies on Linux
+(requires root or sudo). Browser binaries live in Playwright's user cache,
+outside the repo. Rerun it after updating Playwright or on a fresh machine.
+
 ```sh
 npm run check
 npm test
-CHROMIUM_PATH=/usr/bin/chromium npm run test:browser
+npm run test:browser
 npx wrangler deploy --dry-run
 ```
 
-The browser test needs a local Chromium binary; `playwright-core` does not
-download one. Unit/integration tests run the actual Worker and migration against
+Browser tests use the Playwright-installed Chromium by default. To use an
+existing browser instead, set `CHROMIUM_PATH=/path/to/chromium` when running
+`npm run test:browser`. The test workflow runs the same install and verification
+commands on a fresh GitHub Actions runner, excluding the deployment dry run.
+
+Unit/integration tests run the actual Worker and migration against
 Miniflare D1, with fake-indexeddb for deterministic local-storage race tests.
 Browser tests use real IndexedDB in Chromium, two tabs, and two isolated browser
 profiles. No production data or Cloudflare account is used.
