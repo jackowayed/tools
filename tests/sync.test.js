@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { startBackend } from './fixture.js';
 import 'fake-indexeddb/auto';
 import { LocalLog, SyncEngine, visibleState } from '../sync-client.js';
-import { newOperation, canonicalOperation } from '../sync-protocol.js';
+import { newOperation, canonicalOperation, entryPayload } from '../sync-protocol.js';
 
 let mf, db;
 const logs = [];
@@ -161,6 +161,38 @@ test('wire format rejects malformed settings and normalizes property order', () 
   assert.throws(() => canonicalOperation({ v: 1, opId: 'id', type: 'set-setting', field: 'birth', value: '2025-02-30' }));
   assert.throws(() => canonicalOperation({ ...add(), timestamp: NaN }));
   const op = add(); assert.equal(JSON.stringify(canonicalOperation({ kg: op.kg, ...op })), JSON.stringify(op));
+});
+
+test('clothing status preserves old canonical payloads and rejects non-booleans', () => {
+  const old = add();
+  assert.equal(JSON.stringify(canonicalOperation({ ...old, clothed: false })), JSON.stringify(old));
+  assert.equal(entryPayload({ ...old, clothed: false }), entryPayload(old));
+  assert.notEqual(entryPayload({ ...old, clothed: true }), entryPayload(old));
+  for (const clothed of [null, 'false', 0, 1]) {
+    assert.throws(() => canonicalOperation({ ...old, clothed }));
+  }
+});
+
+test('clothed readings survive migration, sync, edits and reload; clothing conflicts are rejected', async () => {
+  const credential = await create(), name = crypto.randomUUID();
+  const a = await log(name, { entries: [
+    { id: 'clothed', ts: 1700000000000, kg: 3, afterFeed: false, clothed: true },
+    { id: 'naked', ts: 1700000000001, kg: 3, afterFeed: false },
+  ] });
+  const b = await log();
+  await a.link(credential); await b.link(credential);
+  const engineA = new SyncEngine(a, { fetcher }), engineB = new SyncEngine(b, { fetcher });
+  await engineA.cycle(); await engineB.cycle();
+  assert.deepEqual(visibleState(await a.read()).entries, visibleState(await b.read()).entries);
+  assert.deepEqual(visibleState(await b.read()).entries.map(e => e.clothed), [true, false]);
+  const original = (await api('pull', { afterSeq: 0 }, credential)).json();
+  const op = (await original).records[0].op;
+  assert.equal((await api('append', { ops: [{ ...op, opId: crypto.randomUUID(), clothed: false }] }, credential)).status, 409);
+  await a.replaceEntry('clothed', { timestamp: op.timestamp, kg: op.kg, afterFeed: true, clothed: false });
+  await engineA.cycle(); await engineB.cycle();
+  const reopened = await log(name);
+  assert.deepEqual(visibleState(await reopened.read()).entries, visibleState(await b.read()).entries);
+  assert.ok(visibleState(await b.read()).entries.every(e => !e.clothed));
 });
 
 test('connect keeps settings edited while authentication is in flight', async () => {

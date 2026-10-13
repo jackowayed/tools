@@ -236,6 +236,10 @@
   #feedStateLabel .after-label { display: none; }
   #feedToggle:checked + #feedStateLabel .before-label { display: none; }
   #feedToggle:checked + #feedStateLabel .after-label { display: inline; }
+  #clothingStateLabel { order: -1; }
+  #clothingStateLabel .clothed-label { display: none; }
+  #clothedToggle:checked + #clothingStateLabel .naked-label { display: none; }
+  #clothedToggle:checked + #clothingStateLabel .clothed-label { display: inline; }
 
   .sex-toggle {
     display: flex;
@@ -389,6 +393,8 @@
   .pill.before { background: #0f766e; }
   .pill.after { background: #7c3aed; }
   .pill.pct { background: #334155; }
+  .pill.clothing { background: #64748b; }
+  .clothing-status { display: block; font-size: 0.65rem; font-weight: 500; color: #777; }
   .pill.ate { background: #b45309; }
 
   .entry .ate-line {
@@ -559,6 +565,11 @@
     <input type="checkbox" class="ios-switch" id="feedToggle">
     <span id="feedStateLabel"><span class="before-label">Before feed</span><span class="after-label">After feed</span></span>
   </label>
+  <label class="switch-row" for="clothedToggle">
+    <input type="checkbox" class="ios-switch" id="clothedToggle" aria-label="Clothed">
+    <span id="clothingStateLabel"><span class="naked-label">Naked</span><span class="clothed-label">Clothed</span></span>
+  </label>
+  <div class="hint">Clothed percentiles subtract 5 oz and appear in italics as an estimate.</div>
   <div class="datetime-toggle">
     <label class="dt-check" for="useCustomTime">
       <input type="checkbox" id="useCustomTime">
@@ -634,6 +645,7 @@ const STORAGE_KEY = 'babyWeightLog';
 const REJECTED_KEY = 'babyWeightLog.rejected';
 const SETTINGS_KEY = 'babyWeightSettings';
 const KG_PER_LB = 0.45359237;
+const CLOTHING_KG = 5 / 16 * KG_PER_LB;
 const EAT_WINDOW_MS = 60 * 60 * 1000;
 const WHO_MAX_DAYS = 1856;
 
@@ -646,6 +658,7 @@ const lbHint = document.getElementById('lbHint');
 const unitLbBtn = document.getElementById('unitLb');
 const unitKgBtn = document.getElementById('unitKg');
 const feedToggle = document.getElementById('feedToggle');
+const clothedToggle = document.getElementById('clothedToggle');
 const dtEl = document.getElementById('datetime');
 const useCustomEl = document.getElementById('useCustomTime');
 const errEl = document.getElementById('err');
@@ -692,6 +705,7 @@ function sanitizeEntry(e) {
     ts: Number.isFinite(ts) ? ts : Date.now(),
     kg: kg,
     afterFeed: e.afterFeed === true,
+    clothed: e.clothed === true,
   };
 }
 
@@ -796,7 +810,9 @@ function percentileFor(entry) {
   if (ageDays > WHO_MAX_DAYS) return { error: 'range' };
   const table = settings.sex === 'male' ? WFA_BOYS : WFA_GIRLS;
   const { l, m, s } = lookupLms(table, ageDays);
-  const z = lmsToZ(entry.kg, l, m, s);
+  const kg = entry.kg - (entry.clothed ? CLOTHING_KG : 0);
+  if (kg <= 0) return { error: 'weight' };
+  const z = lmsToZ(kg, l, m, s);
   return { percentile: zToPercentile(z), z, ageDays, median: m };
 }
 
@@ -864,7 +880,7 @@ function fmtOzDiff(kg) {
   return trimNum(Math.abs(oz), 1) + ' oz';
 }
 
-// For an after-feed entry, find the most recent before-feed entry within 1h prior.
+// Match before/after feed weights with the same clothing status within 1h.
 function computeEaten() {
   const byId = Object.create(null);
   const asc = [...entries].sort((a, b) => a.ts - b.ts);
@@ -874,7 +890,8 @@ function computeEaten() {
     let best = null;
     for (let i = befores.length - 1; i >= 0; i--) {
       const b = befores[i];
-      if (b.ts <= e.ts && e.ts - b.ts <= EAT_WINDOW_MS) { best = b; break; }
+      if ((b.clothed === true) === (e.clothed === true)
+        && b.ts <= e.ts && e.ts - b.ts <= EAT_WINDOW_MS) { best = b; break; }
     }
     if (best) byId[e.id] = { diffKg: e.kg - best.kg, before: best };
   }
@@ -930,7 +947,11 @@ function pctCellContent(entry) {
   if (r.error === 'setup') return { html: '<span style="color:#aaa">—</span>', title: 'Set birth date and sex for percentiles' };
   if (r.error === 'unborn') return { html: '<span style="color:#aaa">—</span>', title: 'Weigh-in is before the birth date' };
   if (r.error === 'range') return { html: '<span style="color:#aaa">—</span>', title: 'WHO weight-for-age covers 0–5 years' };
-  return { html: escHtml(fmtPct(r.percentile)), title: 'z=' + r.z.toFixed(2) + ', median ' + r.median.toFixed(2) + ' kg at this age' };
+  if (r.error === 'weight') return { html: '<span style="color:#aaa">—</span>', title: 'Weight must exceed the 5 oz clothing allowance' };
+  const text = escHtml(fmtPct(r.percentile));
+  return { html: entry.clothed ? `<em>${text}</em>` : text,
+    title: (entry.clothed ? 'Approximate: 5 oz subtracted for clothing. ' : '')
+      + 'z=' + r.z.toFixed(2) + ', median ' + r.median.toFixed(2) + ' kg at this age' };
 }
 
 function ageCellContent(entry) {
@@ -963,14 +984,8 @@ function renderList() {
     div.className = 'entry' + (e.afterFeed ? ' after' : '');
     const p = fmtPrimary(e.kg);
     const r = percentileFor(e);
-    let pctHtml;
-    if (r.error) {
-      pctHtml = r.error === 'setup'
-        ? '<span class="pill pct" title="Set birth date and sex for percentiles">no pct</span>'
-        : '<span class="pill pct" title="' + (r.error === 'unborn' ? 'Weigh-in is before the birth date' : 'WHO weight-for-age covers 0–5 years') + '">—</span>';
-    } else {
-      pctHtml = `<span class="pill pct" title="z=${r.z.toFixed(2)} · median ${r.median.toFixed(2)} kg">${escHtml(fmtPct(r.percentile))} pct</span>`;
-    }
+    const pct = pctCellContent(e);
+    const pctHtml = `<span class="pill pct" title="${escHtml(pct.title)}">${r.error ? (r.error === 'setup' ? 'no pct' : '—') : pct.html + ' pct'}</span>`;
     const feedPill = e.afterFeed
       ? '<span class="pill after">after feed</span>'
       : '<span class="pill before">before feed</span>';
@@ -991,7 +1006,7 @@ function renderList() {
       `<span class="icon">${e.afterFeed ? '🍼' : '🪶'}</span>` +
       `<div class="body">` +
         `<div class="main"><span class="reading">${escHtml(p.text)} <span class="unit">${escHtml(p.unit)}</span></span><span class="alt">${escHtml(fmtAlt(e.kg))}</span></div>` +
-        `<div class="sub">${feedPill} ${pctHtml} ${ageBit}</div>` +
+        `<div class="sub">${feedPill} <span class="pill clothing">${e.clothed ? 'clothed' : 'naked'}</span> ${pctHtml} ${ageBit}</div>` +
         ateHtml +
         `<div class="when">${fmtWhen(e.ts)}</div>` +
       `</div>` +
@@ -1009,13 +1024,13 @@ function renderTable() {
   }
   const head =
     '<thead><tr>' +
-    '<th>Date</th><th>Weight</th><th>Age</th><th>Percentile</th><th title="Weight change from the previous weigh-in (the row below)">Change from<br>previous row</th><th>Time</th><th>Before/After</th><th aria-label="Actions"></th>' +
+    '<th>Date</th><th>Weight</th><th>Age</th><th>Percentile</th><th title="Weight change from the previous weigh-in with the same clothing status">Change from<br>previous matching</th><th>Time</th><th>Before/After</th><th aria-label="Actions"></th>' +
     '</tr></thead>';
   let body = '';
   rows.forEach((e, index) => {
     const p = fmtPrimary(e.kg);
     const pct = pctCellContent(e);
-    const previous = rows[index + 1];
+    const previous = rows.slice(index + 1).find(p => (p.clothed === true) === (e.clothed === true));
     let change = '—';
     if (previous) {
       const diffKg = e.kg - previous.kg;
@@ -1027,7 +1042,7 @@ function renderTable() {
     body +=
       `<tr class="${e.afterFeed ? 'row-after' : 'row-before'}">` +
       `<td class="cell-date">${fmtTableDate(e.ts)}</td>` +
-      `<td class="cell-value">${escHtml(p.text)}${p.unit ? ' ' + escHtml(p.unit) : ''}</td>` +
+      `<td class="cell-value">${escHtml(p.text)}${p.unit ? ' ' + escHtml(p.unit) : ''}<span class="clothing-status">${e.clothed ? 'Clothed' : 'Naked'}</span></td>` +
       `<td class="cell-age">${escHtml(ageCellContent(e))}</td>` +
       `<td class="cell-pct" title="${escHtml(pct.title)}">${pct.html}</td>` +
       `<td class="cell-change">${escHtml(change)}</td>` +
@@ -1055,7 +1070,7 @@ async function persist(action) {
 
 async function addEntry(entry, ts) {
   return persist(() => localLog.mutate('add-entry', {
-    entryId: makeId(), timestamp: ts ?? Date.now(), kg: entry.kg, afterFeed: entry.afterFeed,
+    entryId: makeId(), timestamp: ts ?? Date.now(), kg: entry.kg, afterFeed: entry.afterFeed, clothed: entry.clothed,
   }));
 }
 
@@ -1135,8 +1150,8 @@ document.getElementById('addReading').addEventListener('click', async () => {
   const weight = unchangedWeight ? editingEntry.kg : parsed.kg;
   const timestamp = editingEntry && useCustomEl.checked && dtEl.value === editTimeValue ? editingEntry.ts : ts;
   const saved = editingEntry
-    ? await persist(() => localLog.replaceEntry(editingEntry.id, { timestamp: timestamp ?? Date.now(), kg: weight, afterFeed: feedToggle.checked }))
-    : await addEntry({ type: 'weight', kg: weight, afterFeed: feedToggle.checked }, timestamp);
+    ? await persist(() => localLog.replaceEntry(editingEntry.id, { timestamp: timestamp ?? Date.now(), kg: weight, afterFeed: feedToggle.checked, clothed: clothedToggle.checked }))
+    : await addEntry({ type: 'weight', kg: weight, afterFeed: feedToggle.checked, clothed: clothedToggle.checked }, timestamp);
   addButton.disabled = false;
   if (!saved) return;
   resetEdit();
@@ -1144,6 +1159,7 @@ document.getElementById('addReading').addEventListener('click', async () => {
   ozEl.value = '';
   kgEl.value = '';
   feedToggle.checked = false;
+  clothedToggle.checked = false;
   resetDateTimeToggle(useCustomEl, dtEl);
   (settings.unit === 'kg' ? kgEl : lbEl).focus();
 });
@@ -1201,6 +1217,7 @@ cancelEditEl.addEventListener('click', () => {
   resetEdit();
   lbEl.value = ozEl.value = kgEl.value = '';
   feedToggle.checked = false;
+  clothedToggle.checked = false;
   resetDateTimeToggle(useCustomEl, dtEl);
   errEl.textContent = '';
 });
@@ -1216,6 +1233,7 @@ function handleEditClick(ev) {
   kgEl.value = String(entry.kg);
   editWeightValues = [lbEl.value, ozEl.value, kgEl.value];
   feedToggle.checked = entry.afterFeed;
+  clothedToggle.checked = entry.clothed === true;
   useCustomEl.checked = true;
   dtEl.hidden = false;
   dtEl.value = toLocalInputValue(new Date(entry.ts));

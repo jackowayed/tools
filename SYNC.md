@@ -96,6 +96,9 @@ All bodies have `v: 1`. API responses use `Cache-Control: no-store`.
 `sync-protocol.js` validates and canonicalizes immutable JSON operations:
 `add-entry`, `delete-entry`, and per-field `set-setting`. IDs are UUIDs for new
 records. No client timestamp is used for conflict resolution.
+Add operations optionally include `clothed: true`; omitted or false means naked.
+Canonical operations omit false to preserve the payloads and retry behavior of
+existing records. Deploy the updated Worker with the client to sync clothed readings.
 
 D1's global AUTOINCREMENT sequence may have gaps. A fixed D1 batch inserts
 operations and reads their assignments in one transaction. SQL triggers reject

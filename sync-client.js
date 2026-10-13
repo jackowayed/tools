@@ -6,7 +6,7 @@ function initialState(legacy) {
     settings: { ...DEFAULT_SETTINGS }, versions: { birth: 0, sex: 0 }, sync: null };
   for (const entry of legacy.entries || []) {
     const entryId = /^[A-Za-z0-9_-]{1,100}$/.test(entry.id || '') ? entry.id : crypto.randomUUID();
-    const op = newOperation('add-entry', { entryId, timestamp: Math.trunc(entry.ts), kg: entry.kg, afterFeed: entry.afterFeed === true });
+    const op = newOperation('add-entry', { entryId, timestamp: Math.trunc(entry.ts), kg: entry.kg, afterFeed: entry.afterFeed === true, clothed: entry.clothed === true });
     applyOperation(state, op);
     state.pending.push(op);
   }
@@ -24,9 +24,9 @@ function applyOperation(state, op, seq = 0) {
   if (op.type === 'add-entry') {
     const existing = state.entries.find(e => e.id === op.entryId);
     if (existing) {
-      if (entryPayload({ entryId: existing.id, timestamp: existing.ts, kg: existing.kg, afterFeed: existing.afterFeed }) !== entryPayload(op))
+      if (entryPayload({ entryId: existing.id, timestamp: existing.ts, kg: existing.kg, afterFeed: existing.afterFeed, clothed: existing.clothed }) !== entryPayload(op))
         throw new Error('Conflicting entry received. Sync stopped; local data was kept.');
-    } else state.entries.push({ type: 'weight', id: op.entryId, ts: op.timestamp, kg: op.kg, afterFeed: op.afterFeed });
+    } else state.entries.push({ type: 'weight', id: op.entryId, ts: op.timestamp, kg: op.kg, afterFeed: op.afterFeed, clothed: op.clothed === true });
   } else if (op.type === 'delete-entry') {
     if (!state.tombstones.includes(op.entryId)) state.tombstones.push(op.entryId);
   } else if (seq > state.versions[op.field]) {

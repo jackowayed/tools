@@ -28,8 +28,11 @@ export function canonicalOperation(input) {
   if (op.type === 'add-entry') {
     if (!Number.isSafeInteger(input.timestamp) || Math.abs(input.timestamp) > 8640000000000000
       || typeof input.kg !== 'number' || !Number.isFinite(input.kg) || input.kg <= 0 || input.kg > 50
-      || typeof input.afterFeed !== 'boolean') throw new Error('Invalid weigh-in.');
+      || typeof input.afterFeed !== 'boolean'
+      || (input.clothed !== undefined && typeof input.clothed !== 'boolean')) throw new Error('Invalid weigh-in.');
     Object.assign(op, { timestamp: input.timestamp, kg: input.kg, afterFeed: input.afterFeed });
+    // Omit naked status to preserve canonical payloads for existing operations.
+    if (input.clothed === true) op.clothed = true;
   } else if (op.type === 'set-setting') {
     if (input.field === 'birth' ? !validBirth(input.value)
       : input.field === 'sex' ? !['', 'male', 'female'].includes(input.value) : true) throw new Error('Invalid setting.');
@@ -39,7 +42,8 @@ export function canonicalOperation(input) {
 }
 
 export function entryPayload(op) {
-  return JSON.stringify({ entryId: op.entryId, timestamp: op.timestamp, kg: op.kg, afterFeed: op.afterFeed });
+  return JSON.stringify({ entryId: op.entryId, timestamp: op.timestamp, kg: op.kg, afterFeed: op.afterFeed,
+    ...(op.clothed === true ? { clothed: true } : {}) });
 }
 
 export function newOperation(type, fields) {
