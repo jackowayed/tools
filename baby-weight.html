@@ -256,6 +256,15 @@
     gap: 0.3rem;
     margin-bottom: 0.9rem;
   }
+  .settings-card > summary {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: #888;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .settings-card[open] > summary { margin-bottom: 0.9rem; }
   .settings-row > label {
     font-size: 0.72rem;
     font-weight: 600;
@@ -548,8 +557,8 @@
   <button class="btn btn-w" id="addReading">Add weigh-in</button>
 </div>
 
-<div class="card">
-  <h2>Baby settings</h2>
+<details class="card settings-card" id="babySettings">
+  <summary>Baby settings</summary>
   <div class="settings-row">
     <label for="birthDate">Birth date</label>
     <input type="date" id="birthDate">
@@ -562,7 +571,7 @@
     </div>
   </div>
   <div class="settings-note" id="settingsNote">Saved automatically in this browser. Percentiles need both birth date and sex (WHO weight-for-age, 0–5 years).</div>
-</div>
+</details>
 
 <div class="feed">
   <div class="feed-title">History</div>
@@ -1140,6 +1149,7 @@ ozEl.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') document.getE
 kgEl.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') document.getElementById('addReading').click(); });
 dtEl.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') document.getElementById('addReading').click(); });
 
+document.getElementById('babySettings').open = birthTs() == null;
 render();
 </script>
 </body>
