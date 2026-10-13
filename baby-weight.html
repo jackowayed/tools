@@ -497,6 +497,8 @@
   table.w-table td.cell-change { font-weight: 600; color: #1a1a1a; }
   table.w-table td.cell-dim { color: #aaa; font-weight: 500; }
   table.w-table td.cell-age { color: #1a1a1a; font-weight: 600; }
+  #todayPercentilesTable table.w-table td { font-weight: 400; }
+  #todayPercentilesTable table.w-table tr.pct-quartile td { font-weight: 700; }
   table.w-table tr.row-before td { background: #e7f4f1; }
   table.w-table tr.row-after td { background: #f3edff; }
   table.w-table td .del {
@@ -986,7 +988,8 @@ function renderTodayPercentiles() {
     const z = percentileToZ(percentile);
     const kg = Math.abs(l) < 1e-9 ? m * Math.exp(s * z) : m * Math.pow(1 + l * s * z, 1 / l);
     const weight = fmtPrimary(kg);
-    rows += `<tr><td class="cell-pct">${ord(percentile)}</td><td class="cell-value">${escHtml(weight.text)}${weight.unit ? ' ' + escHtml(weight.unit) : ''}</td></tr>`;
+    const quartile = (percentile === 25 || percentile === 50 || percentile === 75) ? ' class="pct-quartile"' : '';
+    rows += `<tr${quartile}><td class="cell-pct">${ord(percentile)}</td><td class="cell-value">${escHtml(weight.text)}${weight.unit ? ' ' + escHtml(weight.unit) : ''}</td></tr>`;
   }
   todayPercentilesTableEl.innerHTML = `<div class="table-wrap"><table class="w-table"><thead><tr><th scope="col">%ile</th><th scope="col">Weight</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
