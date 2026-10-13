@@ -53,6 +53,81 @@ async function rows(page, count) {
 async function synced(page) {
   await page.waitForFunction(() => document.querySelector('#syncStatus').textContent === 'Up to date');
 }
+async function savedBirth(page) {
+  return page.evaluate(async () => {
+    const { LocalLog, visibleState } = await import('/sync-client.js');
+    const log = await LocalLog.open({ broadcast: false });
+    try { return visibleState(await log.read()).settings.birth; }
+    finally { log.close(); }
+  });
+}
+
+test('Chromium: incomplete birth dates survive refreshes without clearing the saved date', async () => {
+  const context = await browser.newContext({ locale: 'en-US' });
+  const page = await open(context);
+  const birth = page.locator('#birthDate');
+  await birth.fill('2025-01-02');
+  await page.locator('#sexGirl').click();
+  await page.waitForFunction(() => document.querySelector('#settingsSummary').textContent.includes('Jan 2, 2025'));
+  assert.equal(await savedBirth(page), '2025-01-02');
+
+  // Delete just the month segment: value is empty, but day/year remain.
+  await birth.focus();
+  await page.keyboard.press('ArrowLeft');
+  await page.keyboard.press('ArrowLeft');
+  await page.keyboard.press('Backspace');
+  assert.equal(await birth.inputValue(), '');
+  assert.equal(await birth.evaluate(el => el.validity.badInput), true);
+  await page.locator('#sexBoy').click();
+  await page.waitForFunction(() => document.querySelector('#sexBoy').classList.contains('active'));
+  assert.equal(await birth.evaluate(el => el.validity.badInput), true);
+  assert.equal(await savedBirth(page), '2025-01-02');
+
+  // Completing the missing month preserves the other segments and saves.
+  await birth.focus();
+  await page.keyboard.press('ArrowLeft');
+  await page.keyboard.press('ArrowLeft');
+  await page.keyboard.type('03');
+  await page.locator('#sexGirl').focus();
+  await page.waitForFunction(() => document.querySelector('#settingsSummary').textContent.includes('Mar 2, 2025'));
+  assert.equal(await birth.inputValue(), '2025-03-02');
+  assert.equal(await savedBirth(page), '2025-03-02');
+  await page.reload();
+  await page.waitForFunction(() => !document.querySelector('#birthDate').disabled);
+  await page.locator('#babySettings summary').click();
+  assert.equal(await birth.inputValue(), '2025-03-02');
+
+  // Intentionally clearing the whole input must still persist.
+  await birth.fill('');
+  await page.locator('#sexGirl').focus();
+  await page.waitForFunction(() => document.querySelector('#settingsSummary').textContent.startsWith('Set birth date'));
+  assert.equal(await savedBirth(page), '');
+  await context.close();
+});
+
+test('Chromium: storage refreshes and failed saves preserve the birth date draft', async () => {
+  const context = await browser.newContext();
+  const page = await open(context), tab = await open(context);
+  const birth = page.locator('#birthDate');
+  await birth.focus();
+  await birth.evaluate(el => { el.value = '2025-04-03'; el.dispatchEvent(new Event('input', { bubbles: true })); });
+  await tab.locator('#sexGirl').click();
+  await page.waitForFunction(() => document.querySelector('#sexGirl').classList.contains('active'));
+  assert.equal(await birth.inputValue(), '2025-04-03');
+  await page.evaluate(() => {
+    window.originalPut = IDBObjectStore.prototype.put;
+    IDBObjectStore.prototype.put = function () { throw new DOMException('Storage full', 'QuotaExceededError'); };
+  });
+  await birth.dispatchEvent('change');
+  await page.waitForFunction(() => document.querySelector('#err').textContent.includes('Not saved'));
+  await page.locator('#sexGirl').focus();
+  assert.equal(await birth.inputValue(), '2025-04-03');
+  await page.evaluate(() => { IDBObjectStore.prototype.put = window.originalPut; });
+  await birth.dispatchEvent('change');
+  await page.waitForFunction(() => document.querySelector('#settingsSummary').textContent.includes('Apr 3, 2025'));
+  assert.equal(await savedBirth(page), '2025-04-03');
+  await context.close();
+});
 
 test('Chromium: collapsed sync settings and compact table follow the entry unit', async () => {
   const context = await browser.newContext();

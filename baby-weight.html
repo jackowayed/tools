@@ -672,6 +672,8 @@ function loadSettings() {
   return s;
 }
 let settings = { birth: '', sex: '', unit: 'lb' };
+let birthDraftDirty = false;
+let birthEditVersion = 0;
 
 // ---- entries ----
 function sanitizeEntry(e) {
@@ -890,7 +892,12 @@ function escHtml(s) {
 }
 
 function renderSettingsUI() {
-  birthEl.value = settings.birth || '';
+  // Assigning a date input's value also resets its partially typed segments.
+  // Storage/sync refreshes must leave an active or unsaved edit alone.
+  const birthValue = settings.birth || '';
+  if (document.activeElement !== birthEl && !birthDraftDirty && birthEl.value !== birthValue) {
+    birthEl.value = birthValue;
+  }
   sexGirlBtn.classList.toggle('active', settings.sex === 'female');
   sexBoyBtn.classList.toggle('active', settings.sex === 'boy' || settings.sex === 'male');
   unitLbBtn.classList.toggle('active', settings.unit !== 'kg');
@@ -1131,9 +1138,25 @@ unitLbBtn.addEventListener('click', async () => {
 unitKgBtn.addEventListener('click', async () => {
   if (await persist(() => localLog.setUnit('kg'))) kgEl.focus();
 });
+birthEl.addEventListener('input', () => {
+  birthDraftDirty = true;
+  birthEditVersion++;
+});
+birthEl.addEventListener('blur', () => {
+  if (!birthDraftDirty) renderSettingsUI();
+});
 birthEl.addEventListener('change', async () => {
+  // A native date input exposes an empty value for incomplete dates too.
+  // Only a truly empty field should clear the saved birth date.
+  if (birthEl.validity.badInput || !birthEl.validity.valid) return;
   const value = birthEl.value || '';
-  if (!await persist(() => localLog.mutate('set-setting', { field: 'birth', value }))) renderSettingsUI();
+  const editVersion = birthEditVersion;
+  birthDraftDirty = true;
+  if (await persist(() => localLog.mutate('set-setting', { field: 'birth', value }))
+      && birthEditVersion === editVersion) {
+    birthDraftDirty = false;
+    renderSettingsUI();
+  }
 });
 sexGirlBtn.addEventListener('click', () => {
   void persist(() => localLog.mutate('set-setting', { field: 'sex', value: settings.sex === 'female' ? '' : 'female' }));
