@@ -10,7 +10,7 @@ No JSON manifests to keep in sync, no external dependencies.
 import html
 import re
 import subprocess
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).parent
@@ -96,7 +96,7 @@ def collect_tools():
             }
         )
     tools.sort(
-        key=lambda t: t["updated"] or datetime.min.replace(tzinfo=None),
+        key=lambda t: t["updated"] or datetime.min.replace(tzinfo=timezone.utc),
         reverse=True,
     )
     return tools
