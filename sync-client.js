@@ -103,6 +103,20 @@ export class LocalLog {
       return state;
     });
   }
+  replaceEntry(entryId, fields) {
+    // Use the existing sync protocol: queue both changes in one durable transaction.
+    const removed = newOperation('delete-entry', { entryId });
+    const replacement = newOperation('add-entry', { ...fields, entryId: crypto.randomUUID() });
+    return this.change(state => {
+      if (!state.entries.some(e => e.id === entryId) || state.tombstones.includes(entryId))
+        throw new Error('This weigh-in was removed or edited elsewhere. Cancel and reopen the entry.');
+      for (const op of [removed, replacement]) {
+        applyOperation(state, op);
+        state.pending.push(op);
+      }
+      return state;
+    });
+  }
   setUnit(unit) {
     if (!['kg', 'lb'].includes(unit)) throw new Error('Invalid unit.');
     return this.change(state => { state.settings.unit = unit; return state; });

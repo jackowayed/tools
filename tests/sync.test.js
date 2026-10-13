@@ -199,3 +199,26 @@ test('same-field settings converge to server order and duplicate sync loops are 
   const records = await (await api('pull', { afterSeq: 0 }, credential)).json();
   assert.equal(records.records.length, 2);
 });
+
+
+test('IndexedDB: editing atomically replaces an entry and rejects stale edits', async () => {
+  const a = await log();
+  await a.mutate('add-entry', { entryId: 'original', timestamp: 1700000000123, kg: 3.123456, afterFeed: false });
+  const fields = { timestamp: 1700000000123, kg: 3.123456, afterFeed: true };
+  const before = await a.read();
+  const put = IDBObjectStore.prototype.put;
+  IDBObjectStore.prototype.put = () => { throw new DOMException('Full', 'QuotaExceededError'); };
+  try { await assert.rejects(a.replaceEntry('original', fields), /Full/); }
+  finally { IDBObjectStore.prototype.put = put; }
+  assert.deepEqual(await a.read(), before);
+  await a.replaceEntry('original', fields);
+  const state = await a.read();
+  const visible = visibleState(state).entries;
+  assert.equal(visible.length, 1);
+  assert.notEqual(visible[0].id, 'original');
+  assert.equal(visible[0].ts, fields.timestamp);
+  assert.equal(visible[0].kg, fields.kg);
+  assert.equal(visible[0].afterFeed, true);
+  assert.deepEqual(state.pending.slice(-2).map(op => op.type), ['delete-entry', 'add-entry']);
+  await assert.rejects(a.replaceEntry('original', fields), /removed or edited elsewhere/);
+});

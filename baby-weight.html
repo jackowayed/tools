@@ -306,7 +306,7 @@
 
   .feed {
     width: 100%;
-    max-width: 460px;
+    max-width: 740px;
     display: flex;
     flex-direction: column;
     gap: 0.6rem;
@@ -482,24 +482,25 @@
     font-size: 0.74rem;
     color: #555;
   }
-  table.w-table td.cell-date .t {
-    margin-left: 0.5rem;
+  table.w-table td.cell-time {
     color: #7d9a97;
     letter-spacing: -0.01em;
   }
-  table.w-table td.cell-feed { font-weight: 700; font-size: 0.72rem; }
-  table.w-table td.cell-feed.before { color: #0f766e; }
-  table.w-table td.cell-feed.after { color: #7c3aed; }
+  table.w-table td.cell-feed { font-weight: 700; font-size: 0.72rem; color: #1a1a1a; }
   table.w-table td.cell-pct { font-weight: 700; color: #334155; }
-  table.w-table td.cell-ate { font-weight: 700; color: #92400e; }
+  table.w-table td.cell-change { font-weight: 600; color: #1a1a1a; }
   table.w-table td.cell-dim { color: #aaa; font-weight: 500; }
   table.w-table td.cell-age { color: #1a1a1a; font-weight: 600; }
+  table.w-table tr.row-before td { background: #e7f4f1; }
   table.w-table tr.row-after td { background: #f3edff; }
   table.w-table td .del {
     background: none; border: none; color: #ccc;
     font-size: 1rem; cursor: pointer; padding: 0 0.2rem; line-height: 1;
   }
   table.w-table td .del:hover { color: #c0392b; }
+
+  .edit { border: 1px solid #cfe3e0; border-radius: 0.4rem; background: #fff; color: #1a1a1a; padding: 0.3rem 0.4rem; cursor: pointer; font: inherit; font-size: 0.72rem; }
+  #cancelEdit { margin-top: 0.6rem; }
 
   footer {
     text-align: center;
@@ -530,7 +531,7 @@
 <h1>⚖️ Baby Weight Log</h1>
 
 <div class="card">
-  <h2>Add a weigh-in</h2>
+  <h2 id="entryFormTitle">Add a weigh-in</h2>
   <div class="err" id="err"></div>
   <div class="unit-toggle" role="group" aria-label="Weight units">
     <button class="unit-btn active" id="unitLb" type="button">lb + oz</button>
@@ -556,7 +557,7 @@
   </div>
   <label class="switch-row" for="feedToggle">
     <input type="checkbox" class="ios-switch" id="feedToggle">
-    <span id="feedStateLabel"><span class="before-label">🪶 Before feed</span><span class="after-label">🍼 After feed</span></span>
+    <span id="feedStateLabel"><span class="before-label">Before feed</span><span class="after-label">After feed</span></span>
   </label>
   <div class="datetime-toggle">
     <label class="dt-check" for="useCustomTime">
@@ -566,6 +567,20 @@
     <input type="datetime-local" id="datetime" hidden>
   </div>
   <button class="btn btn-w" id="addReading">Add weigh-in</button>
+  <button class="unit-btn" id="cancelEdit" type="button" hidden>Cancel edit</button>
+</div>
+
+
+
+<div class="feed">
+  <div class="feed-title">History</div>
+  <div class="settings-summary" id="settingsSummary"></div>
+  <div class="tabs">
+    <button class="tab active" data-view="table" id="tabTable">Table</button>
+    <button class="tab" data-view="list" id="tabList">List</button>
+  </div>
+  <div id="feed" style="display:none"></div>
+  <div id="table"></div>
 </div>
 
 <details class="card settings-card" id="babySettings">
@@ -599,17 +614,6 @@
   <p class="settings-note">Anyone with the key can read and change this log. Keep a copy: there is no key recovery. Sync stores readable records on the server over HTTPS; it is not end-to-end encrypted. Deleting a weigh-in hides it on all devices, but the server retains its history. Disconnect keeps this device’s data and pending changes.</p>
 </div>
 </details>
-
-<div class="feed">
-  <div class="feed-title">History</div>
-  <div class="settings-summary" id="settingsSummary"></div>
-  <div class="tabs">
-    <button class="tab active" data-view="table" id="tabTable">Table</button>
-    <button class="tab" data-view="list" id="tabList">List</button>
-  </div>
-  <div id="feed" style="display:none"></div>
-  <div id="table"></div>
-</div>
 
 <footer>
   Weigh-ins and settings are saved on this device. When you enable sync, weigh-ins, birth date and sex are also stored on the server. Unit preference stays on this device.<br>
@@ -731,6 +735,10 @@ let localLog, syncEngine;
 let lastRevision = -1;
 let syncMessage = '';
 let syncActionBusy = false;
+let editingEntry = null;
+let editWeightValues = null;
+let editTimeValue = '';
+const cancelEditEl = document.getElementById('cancelEdit');
 
 // ---- WHO weight-for-age percentile (LMS, daily tables 0-1856d) ----
 function lookupLms(table, ageDays) {
@@ -876,15 +884,17 @@ function computeEaten() {
 function fmtWhen(ts) {
   const d = new Date(ts);
   const date = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-  const time = d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  const time = d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', hour12: true });
   return `${date} <strong>${time}</strong>`;
 }
 
 function fmtTableDate(ts) {
   const d = new Date(ts);
-  const date = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-  const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
-  return `${date}<span class="t">${time}</span>`;
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+function fmtTableTime(ts) {
+  return new Date(ts).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
 }
 
 function escHtml(s) {
@@ -911,7 +921,7 @@ function renderSettingsUI() {
     const dateStr = isNaN(d) ? settings.birth : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
     settingsSummaryEl.textContent = `Percentiles for ${settings.sex === 'male' ? 'boy' : 'girl'} born ${dateStr} (WHO 0–5 y).`;
   } else {
-    settingsSummaryEl.textContent = 'Set birth date + sex above to see weight-for-age percentiles.';
+    settingsSummaryEl.textContent = 'Set birth date + sex below to see weight-for-age percentiles.';
   }
 }
 
@@ -985,13 +995,13 @@ function renderList() {
         ateHtml +
         `<div class="when">${fmtWhen(e.ts)}</div>` +
       `</div>` +
+      `<button class="edit" type="button" data-id="${escHtml(e.id)}" aria-label="Edit weigh-in">Edit</button>` +
       `<button class="del" title="Delete" data-id="${escHtml(e.id)}">✕</button>`;
     feedEl.appendChild(div);
   });
 }
 
 function renderTable() {
-  const eaten = computeEaten();
   const rows = [...entries].sort((a, b) => b.ts - a.ts);
   if (rows.length === 0) {
     tableEl.innerHTML = '<div class="empty">No weigh-ins yet.</div>';
@@ -999,31 +1009,31 @@ function renderTable() {
   }
   const head =
     '<thead><tr>' +
-    '<th>Date</th><th>Weight</th><th>Age</th><th>%ile</th><th>Feed</th><th></th>' +
+    '<th>Date</th><th>Weight</th><th>Age</th><th>Percentile</th><th title="Weight change from the previous weigh-in (the row below)">Change from<br>previous row</th><th>Time</th><th>Before/After</th><th aria-label="Actions"></th>' +
     '</tr></thead>';
   let body = '';
-  rows.forEach(e => {
+  rows.forEach((e, index) => {
     const p = fmtPrimary(e.kg);
     const pct = pctCellContent(e);
-    const ate = eaten[e.id];
-    let ateCell;
-    if (!e.afterFeed) {
-      ateCell = '<td class="cell-feed before">Before</td>';
-    } else if (!ate) {
-      ateCell = '<td class="cell-dim" title="Needs a before-feed weigh-in within 1 hour prior">—</td>';
-    } else {
-      const sign = ate.diffKg < 0 ? '−' : '+';
-      const amount = settings.unit === 'kg' ? fmtGrams(Math.abs(ate.diffKg)) : fmtOzDiff(ate.diffKg);
-      ateCell = `<td class="cell-ate" title="${Math.round((e.ts - ate.before.ts) / 60000)} min after before-feed weigh-in">${sign}${escHtml(amount)}</td>`;
+    const previous = rows[index + 1];
+    let change = '—';
+    if (previous) {
+      const diffKg = e.kg - previous.kg;
+      const amount = settings.unit === 'kg' ? fmtGrams(Math.abs(diffKg)) : fmtOzDiff(diffKg);
+      // Avoid displaying a signed zero after rounding small differences.
+      const sign = parseFloat(amount) === 0 ? '' : diffKg < 0 ? '−' : '+';
+      change = sign + amount;
     }
     body +=
-      `<tr class="${e.afterFeed ? 'row-after' : ''}">` +
+      `<tr class="${e.afterFeed ? 'row-after' : 'row-before'}">` +
       `<td class="cell-date">${fmtTableDate(e.ts)}</td>` +
       `<td class="cell-value">${escHtml(p.text)}${p.unit ? ' ' + escHtml(p.unit) : ''}</td>` +
       `<td class="cell-age">${escHtml(ageCellContent(e))}</td>` +
       `<td class="cell-pct" title="${escHtml(pct.title)}">${pct.html}</td>` +
-      ateCell +
-      `<td><button class="del" title="Delete" data-id="${escHtml(e.id)}">✕</button></td>` +
+      `<td class="cell-change">${escHtml(change)}</td>` +
+      `<td class="cell-time">${escHtml(fmtTableTime(e.ts))}</td>` +
+      `<td class="cell-feed">${e.afterFeed ? 'After' : 'Before'}</td>` +
+      `<td><button class="del" title="Delete" aria-label="Delete weigh-in" data-id="${escHtml(e.id)}">✕</button> <button class="edit" type="button" data-id="${escHtml(e.id)}" aria-label="Edit weigh-in">Edit</button></td>` +
       '</tr>';
   });
   tableEl.innerHTML =
@@ -1121,9 +1131,15 @@ document.getElementById('addReading').addEventListener('click', async () => {
   if (ts === null) return;
   const addButton = document.getElementById('addReading');
   addButton.disabled = true;
-  const saved = await addEntry({ type: 'weight', kg: parsed.kg, afterFeed: feedToggle.checked }, ts);
+  const unchangedWeight = editingEntry && editWeightValues.every((value, i) => value === [lbEl.value, ozEl.value, kgEl.value][i]);
+  const weight = unchangedWeight ? editingEntry.kg : parsed.kg;
+  const timestamp = editingEntry && useCustomEl.checked && dtEl.value === editTimeValue ? editingEntry.ts : ts;
+  const saved = editingEntry
+    ? await persist(() => localLog.replaceEntry(editingEntry.id, { timestamp: timestamp ?? Date.now(), kg: weight, afterFeed: feedToggle.checked }))
+    : await addEntry({ type: 'weight', kg: weight, afterFeed: feedToggle.checked }, timestamp);
   addButton.disabled = false;
   if (!saved) return;
+  resetEdit();
   lbEl.value = '';
   ozEl.value = '';
   kgEl.value = '';
@@ -1173,6 +1189,46 @@ document.querySelectorAll('.tab').forEach(tab => {
     render();
   });
 });
+
+function resetEdit() {
+  editingEntry = null;
+  editWeightValues = null;
+  document.getElementById('entryFormTitle').textContent = 'Add a weigh-in';
+  document.getElementById('addReading').textContent = 'Add weigh-in';
+  cancelEditEl.hidden = true;
+}
+cancelEditEl.addEventListener('click', () => {
+  resetEdit();
+  lbEl.value = ozEl.value = kgEl.value = '';
+  feedToggle.checked = false;
+  resetDateTimeToggle(useCustomEl, dtEl);
+  errEl.textContent = '';
+});
+function handleEditClick(ev) {
+  const btn = ev.target.closest('.edit');
+  if (!btn || !localLog || document.getElementById('addReading').disabled) return;
+  const entry = entries.find(e => e.id === btn.dataset.id);
+  if (!entry) return;
+  editingEntry = { ...entry };
+  // Keep full precision when correcting only the feed label or time.
+  lbEl.value = String(entry.kg / KG_PER_LB);
+  ozEl.value = '';
+  kgEl.value = String(entry.kg);
+  editWeightValues = [lbEl.value, ozEl.value, kgEl.value];
+  feedToggle.checked = entry.afterFeed;
+  useCustomEl.checked = true;
+  dtEl.hidden = false;
+  dtEl.value = toLocalInputValue(new Date(entry.ts));
+  editTimeValue = dtEl.value;
+  document.getElementById('entryFormTitle').textContent = 'Edit weigh-in';
+  document.getElementById('addReading').textContent = 'Save changes';
+  cancelEditEl.hidden = false;
+  errEl.textContent = '';
+  document.getElementById('entryFormTitle').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  feedToggle.focus({ preventScroll: true });
+}
+feedEl.addEventListener('click', handleEditClick);
+tableEl.addEventListener('click', handleEditClick);
 
 async function handleDeleteClick(ev) {
   const btn = ev.target.closest('.del');

@@ -138,23 +138,23 @@ test('Chromium: collapsed sync settings and compact table follow the entry unit'
   await page.locator('#babySettings summary').click();
   assert.equal(await page.locator('#syncKey').isVisible(), true);
   await page.locator('#feedToggle').click();
-  assert.equal(await page.locator('#feedStateLabel').innerText(), '🍼 After feed');
+  assert.equal(await page.locator('#feedStateLabel').innerText(), 'After feed');
   await page.locator('#feedStateLabel').click();
-  assert.equal(await page.locator('#feedStateLabel').innerText(), '🪶 Before feed');
+  assert.equal(await page.locator('#feedStateLabel').innerText(), 'Before feed');
   await add(page, 3);
   await page.locator('#feedToggle').check();
   await add(page, 3.1);
-  assert.equal(await page.locator('#feedStateLabel').innerText(), '🪶 Before feed');
+  assert.equal(await page.locator('#feedStateLabel').innerText(), 'Before feed');
   await rows(page, 2);
-  assert.deepEqual(await page.locator('#table th').allTextContents(), ['Date', 'Weight', 'Age', '%ile', 'Feed', '']);
+  assert.deepEqual(await page.locator('#table th').allTextContents(), ['Date', 'Weight', 'Age', 'Percentile', 'Change fromprevious row', 'Time', 'Before/After', '']);
   assert.deepEqual(await page.locator('#table .cell-value').allTextContents(), ['3.1 kg', '3 kg']);
-  assert.deepEqual(await page.locator('#table tbody td:nth-last-child(2)').allTextContents(), ['+100 g', 'Before']);
-  assert.equal(await page.locator('#table tbody td:last-child .del').count(), 2);
+  assert.deepEqual(await page.locator('#table tbody td:nth-child(5)').allTextContents(), ['+100 g', '—']);
+  assert.equal(await page.locator('#table tbody .del').count(), 2);
   assert.equal(await page.locator('#table .alt').count(), 0);
   await page.locator('#unitLb').click();
   await page.waitForFunction(() => document.querySelector('#table .cell-value').textContent.includes('lb'));
   assert.deepEqual(await page.locator('#table .cell-value').allTextContents(), ['6 lb 13.3 oz', '6 lb 9.8 oz']);
-  assert.deepEqual(await page.locator('#table tbody td:nth-last-child(2)').allTextContents(), ['+3.5 oz', 'Before']);
+  assert.deepEqual(await page.locator('#table tbody td:nth-child(5)').allTextContents(), ['+3.5 oz', '—']);
   await context.close();
 });
 
@@ -166,12 +166,12 @@ test('Chromium: feed label follows clicks and keyboard when the app module canno
   const toggle = page.locator('#feedToggle');
   const label = page.locator('#feedStateLabel');
   await toggle.click();
-  assert.equal(await label.innerText(), '🍼 After feed');
+  assert.equal(await label.innerText(), 'After feed');
   await label.click();
-  assert.equal(await label.innerText(), '🪶 Before feed');
+  assert.equal(await label.innerText(), 'Before feed');
   await toggle.focus();
   await page.keyboard.press('Space');
-  assert.equal(await label.innerText(), '🍼 After feed');
+  assert.equal(await label.innerText(), 'After feed');
   await context.close();
 });
 
@@ -228,4 +228,86 @@ test('Chromium: migration, multi-tab adds, two-device sync, offline deletion, re
   await b.locator('#syncRetry').click(); await rows(b, 6);
   assert.deepEqual(errors, []);
   await first.close(); await second.close();
+});
+
+
+test('Chromium: past entries can be corrected, cancelled, reloaded and synced', async () => {
+  const first = await browser.newContext({ locale: 'en-GB', timezoneId: 'UTC' });
+  const second = await browser.newContext({ locale: 'en-US', timezoneId: 'UTC' });
+  const a = await open(first), b = await open(second);
+  await a.locator('#unitKg').click();
+  await a.locator('#kg').fill('3.123456');
+  await a.locator('#useCustomTime').check();
+  await a.locator('#datetime').fill('2026-10-01T13:05');
+  await a.locator('#addReading').click();
+  await rows(a, 1);
+  assert.equal(await a.locator('#table thead th:nth-child(6)').textContent(), 'Time');
+  assert.equal(await a.locator('#table .cell-time').textContent(), '1:05 PM');
+  assert.equal(await a.locator('#feedStateLabel').innerText(), 'Before feed');
+  assert.ok(await a.evaluate(() => !!(document.querySelector('.feed').compareDocumentPosition(document.querySelector('#babySettings')) & Node.DOCUMENT_POSITION_FOLLOWING)));
+  const beforeColor = await a.locator('#table .cell-value').evaluate(el => getComputedStyle(el).backgroundColor);
+  await a.locator('#syncCreate').click(); await synced(a);
+  await b.locator('#syncKey').fill(await a.locator('#syncKey').inputValue());
+  await b.locator('#syncConnect').click(); await synced(b); await rows(b, 1);
+  await first.setOffline(true);
+  await a.locator('#table .edit').click();
+  await a.locator('#feedToggle').check();
+  assert.equal(await a.locator('#feedStateLabel').innerText(), 'After feed');
+  await a.locator('#addReading').click();
+  await a.waitForFunction(() => document.querySelector('#cancelEdit').hidden);
+  await rows(a, 1);
+  assert.equal(await a.locator('#table .cell-feed').textContent(), 'After');
+  assert.notEqual(await a.locator('#table .cell-value').evaluate(el => getComputedStyle(el).backgroundColor), beforeColor);
+  await first.setOffline(false);
+  await a.reload(); await rows(a, 1);
+  assert.equal(await a.locator('#table .cell-feed').textContent(), 'After');
+  await a.locator('#tabList').click();
+  await a.locator('#feed .edit').click();
+  await a.locator('#kg').fill('4');
+  await a.locator('#cancelEdit').click();
+  await a.locator('#feed .edit').click();
+  assert.equal(await a.locator('#kg').inputValue(), '3.123456');
+  assert.equal(await a.locator('#datetime').inputValue(), '2026-10-01T13:05');
+  await a.locator('#kg').fill('3.2');
+  await a.locator('#datetime').fill('2026-10-02T00:05');
+  await a.locator('#addReading').click();
+  await a.waitForFunction(() => document.querySelector('#cancelEdit').hidden);
+  await first.setOffline(false);
+  await a.locator('#syncRetry').click();
+  await a.waitForFunction(async () => {
+    const { LocalLog } = await import('/sync-client.js');
+    const log = await LocalLog.open({ broadcast: false });
+    try { return (await log.read()).pending.length === 0; } finally { log.close(); }
+  });
+  await synced(a);
+  await b.locator('#syncRetry').click(); await synced(b); await rows(b, 1);
+  await b.waitForFunction(() => document.querySelector('#table .cell-value').textContent === '7 lb 0.9 oz');
+  assert.equal(await b.locator('#table .cell-value').textContent(), '7 lb 0.9 oz');
+  assert.equal(await b.locator('#table .cell-feed').textContent(), 'After');
+  assert.equal(await b.locator('#table .cell-time').textContent(), '12:05 AM');
+  await first.close(); await second.close();
+});
+
+
+test('Chromium: row changes compare consecutive weigh-ins regardless of feed status', async () => {
+  const context = await browser.newContext();
+  await context.addInitScript(() => {
+    localStorage.setItem('babyWeightSettings', JSON.stringify({ unit: 'kg' }));
+    localStorage.setItem('babyWeightLog', JSON.stringify([
+      { id: 'oldest', type: 'weight', ts: 1700000000000, kg: 3, afterFeed: true },
+      { id: 'middle', type: 'weight', ts: 1700100000000, kg: 3.1, afterFeed: false },
+      { id: 'newer', type: 'weight', ts: 1700200000000, kg: 3.05, afterFeed: false },
+      { id: 'latest', type: 'weight', ts: 1700300000000, kg: 3.05, afterFeed: true },
+    ]));
+  });
+  const page = await open(context);
+  await rows(page, 4);
+  assert.deepEqual(await page.locator('.cell-change').allTextContents(), ['0 g', '−50 g', '+100 g', '—']);
+  assert.deepEqual(await page.locator('.cell-feed').allTextContents(), ['After', 'Before', 'Before', 'After']);
+  assert.equal(await page.locator('#table tbody tr:first-child td:last-child button:first-child').getAttribute('aria-label'), 'Delete weigh-in');
+  // Removing the previous weigh-in recalculates the change against the new adjacent row.
+  page.once('dialog', dialog => dialog.accept());
+  await page.locator('#table .del[data-id="middle"]').click(); await rows(page, 3);
+  assert.deepEqual(await page.locator('.cell-change').allTextContents(), ['0 g', '+50 g', '—']);
+  await context.close();
 });
