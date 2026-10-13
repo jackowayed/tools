@@ -1,3 +1,5 @@
+import { handleSync } from './sync.js';
+
 // Edge Worker for the tools site.
 //
 // Static assets (the .html tool pages, index, colophon, …) are served directly
@@ -45,6 +47,7 @@ const PURPLEAIR_FIELDS = [
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    if (url.pathname.startsWith('/api/sync/')) return handleSync(request, env);
 
     // Transparent same-origin proxy for the MinuteCryptic daily puzzle API.
     // Replaces the old Netlify _redirects rule:

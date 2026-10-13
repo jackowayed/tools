@@ -512,6 +512,18 @@
     margin-top: 0.5rem;
   }
   footer a { color: #0f766e; }
+#syncCard button {
+  padding: 8px 12px;
+  border: 1px solid #d9d9df;
+  border-radius: 8px;
+  background: #f7f7fa;
+  color: #333;
+  font: inherit;
+  font-size: .85rem;
+  cursor: pointer;
+}
+#syncCard button:disabled { opacity: .55; cursor: wait; }
+#syncKey { padding: 10px; border: 1px solid #d9d9df; border-radius: 8px; font-size: 16px; }
 </style>
 </head>
 <body>
@@ -573,6 +585,23 @@
   <div class="settings-note" id="settingsNote">Saved automatically in this browser. Percentiles need both birth date and sex (WHO weight-for-age, 0–5 years).</div>
 </details>
 
+<div class="card" id="syncCard">
+  <h2>Sync between devices</h2>
+  <p class="settings-note">Create a sync key here, then paste it on another device. Connecting combines this browser’s weigh-ins with that log; the synced birth date and sex take precedence.</p>
+  <label for="syncKey">Sync key</label>
+  <input id="syncKey" type="password" autocomplete="off" spellcheck="false" autocapitalize="off" placeholder="Paste an existing sync key" style="width:100%;box-sizing:border-box;margin:8px 0">
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <button type="button" id="syncCreate">Create sync</button>
+    <button type="button" id="syncConnect">Connect existing sync</button>
+    <button type="button" id="syncCopy" hidden>Copy key</button>
+    <button type="button" id="syncShow">Show key</button>
+    <button type="button" id="syncDisconnect" hidden>Disconnect</button>
+    <button type="button" id="syncRetry" hidden>Sync now</button>
+  </div>
+  <p id="syncStatus" class="settings-note" role="status" aria-live="polite">Opening local storage…</p>
+  <p class="settings-note">Anyone with the key can read and change this log. Keep a copy: there is no key recovery. Sync stores readable records on the server over HTTPS; it is not end-to-end encrypted. Deleting a weigh-in hides it on all devices, but the server retains its history. Disconnect keeps this device’s data and pending changes.</p>
+</div>
+
 <div class="feed">
   <div class="feed-title">History</div>
   <div class="settings-summary" id="settingsSummary"></div>
@@ -585,11 +614,13 @@
 </div>
 
 <footer>
-  🔒 All weigh-ins and settings are stored locally in this browser. Nothing is sent to a server.<br>
+  Weigh-ins and settings are saved on this device. When you enable sync, weigh-ins, birth date and sex are also stored on the server. Unit preference stays on this device.<br>
   Percentiles use the <a href="https://www.who.int/tools/child-growth-standards/standards/weight-for-age">WHO Child Growth Standards</a> (weight-for-age, 0–5 y). For tracking only — not medical advice.
 </footer>
 
-<script>
+<script type="module">
+import { LocalLog, SyncEngine, visibleState } from '/sync-client.js';
+
 // WHO Child Growth Standards, weight-for-age LMS (daily, 0-1856 days).
 // Source: WHO expanded tables via SunnySeedApp/who-growth-standards (MIT);
 // data (c) World Health Organization, reproduced for computational use.
@@ -631,7 +662,7 @@ const settingsSummaryEl = document.getElementById('settingsSummary');
 let currentView = 'table';
 
 function makeId() {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  return crypto.randomUUID();
 }
 
 // ---- settings (stable birth date + sex + unit preference) ----
@@ -647,10 +678,7 @@ function loadSettings() {
   } catch {}
   return s;
 }
-function saveSettings(s) {
-  try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); } catch {}
-}
-let settings = loadSettings();
+let settings = { birth: '', sex: '', unit: 'lb' };
 
 // ---- entries ----
 function sanitizeEntry(e) {
@@ -703,11 +731,11 @@ function load() {
   return kept;
 }
 
-function save(entries) {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(entries)); } catch {}
-}
-
-let entries = load();
+let entries = [];
+let localLog, syncEngine;
+let lastRevision = -1;
+let syncMessage = '';
+let syncActionBusy = false;
 
 // ---- WHO weight-for-age percentile (LMS, daily tables 0-1856d) ----
 function lookupLms(table, ageDays) {
@@ -835,7 +863,7 @@ function fmtOzDiff(kg) {
 
 // For an after-feed entry, find the most recent before-feed entry within 1h prior.
 function computeEaten() {
-  const byId = {};
+  const byId = Object.create(null);
   const asc = [...entries].sort((a, b) => a.ts - b.ts);
   const befores = asc.filter(e => !e.afterFeed);
   for (const e of asc) {
@@ -872,8 +900,6 @@ function renderSettingsUI() {
   birthEl.value = settings.birth || '';
   sexGirlBtn.classList.toggle('active', settings.sex === 'female');
   sexBoyBtn.classList.toggle('active', settings.sex === 'boy' || settings.sex === 'male');
-  // (accept legacy 'boy' value)
-  if (settings.sex === 'boy') { settings.sex = 'male'; saveSettings(settings); }
   unitLbBtn.classList.toggle('active', settings.unit !== 'kg');
   unitKgBtn.classList.toggle('active', settings.unit === 'kg');
   lbWrap.hidden = settings.unit === 'kg';
@@ -959,7 +985,7 @@ function renderList() {
         ateHtml +
         `<div class="when">${fmtWhen(e.ts)}</div>` +
       `</div>` +
-      `<button class="del" title="Delete" data-id="${e.id}">✕</button>`;
+      `<button class="del" title="Delete" data-id="${escHtml(e.id)}">✕</button>`;
     feedEl.appendChild(div);
   });
 }
@@ -997,19 +1023,30 @@ function renderTable() {
       `<td class="cell-age">${escHtml(ageCellContent(e))}</td>` +
       `<td class="cell-pct" title="${escHtml(pct.title)}">${pct.html}</td>` +
       ateCell +
-      `<td><button class="del" title="Delete" data-id="${e.id}">✕</button></td>` +
+      `<td><button class="del" title="Delete" data-id="${escHtml(e.id)}">✕</button></td>` +
       '</tr>';
   });
   tableEl.innerHTML =
     `<div class="table-wrap"><table class="w-table">${head}<tbody>${body}</tbody></table></div>`;
 }
 
-function addEntry(entry, ts) {
-  entry.id = makeId();
-  entry.ts = (typeof ts === 'number' && Number.isFinite(ts)) ? ts : Date.now();
-  entries.push(entry);
-  save(entries);
-  render();
+async function persist(action) {
+  if (!localLog) { errEl.textContent = 'Local storage is unavailable. Your change was not saved.'; return false; }
+  try { await action(); }
+  catch (error) { errEl.textContent = `Not saved: ${error.message}`; return false; }
+  errEl.textContent = '';
+  // The mutation is already committed. A render/read failure must not invite
+  // the user to repeat a successful add and create a duplicate.
+  try { await refreshFromStorage(); }
+  catch (error) { errEl.textContent = `Saved, but could not refresh the view: ${error.message}`; }
+  void syncEngine.run();
+  return true;
+}
+
+async function addEntry(entry, ts) {
+  return persist(() => localLog.mutate('add-entry', {
+    entryId: makeId(), timestamp: ts ?? Date.now(), kg: entry.kg, afterFeed: entry.afterFeed,
+  }));
 }
 
 function toLocalInputValue(d) {
@@ -1076,13 +1113,17 @@ function parseWeightInput() {
   return { kg: totalLb * KG_PER_LB };
 }
 
-document.getElementById('addReading').addEventListener('click', () => {
+document.getElementById('addReading').addEventListener('click', async () => {
   errEl.textContent = '';
   const parsed = parseWeightInput();
   if (parsed.error) { errEl.textContent = parsed.error; return; }
   const ts = resolveTimestamp(useCustomEl, dtEl, errEl);
   if (ts === null) return;
-  addEntry({ type: 'weight', kg: parsed.kg, afterFeed: feedToggle.checked }, ts);
+  const addButton = document.getElementById('addReading');
+  addButton.disabled = true;
+  const saved = await addEntry({ type: 'weight', kg: parsed.kg, afterFeed: feedToggle.checked }, ts);
+  addButton.disabled = false;
+  if (!saved) return;
   lbEl.value = '';
   ozEl.value = '';
   kgEl.value = '';
@@ -1094,33 +1135,21 @@ document.getElementById('addReading').addEventListener('click', () => {
 
 feedToggle.addEventListener('change', renderFeedState);
 
-unitLbBtn.addEventListener('click', () => {
-  settings.unit = 'lb';
-  saveSettings(settings);
-  renderSettingsUI();
-  lbEl.focus();
+unitLbBtn.addEventListener('click', async () => {
+  if (await persist(() => localLog.setUnit('lb'))) lbEl.focus();
 });
-unitKgBtn.addEventListener('click', () => {
-  settings.unit = 'kg';
-  saveSettings(settings);
-  renderSettingsUI();
-  kgEl.focus();
+unitKgBtn.addEventListener('click', async () => {
+  if (await persist(() => localLog.setUnit('kg'))) kgEl.focus();
 });
-
-birthEl.addEventListener('change', () => {
-  settings.birth = birthEl.value || '';
-  saveSettings(settings);
-  render();
+birthEl.addEventListener('change', async () => {
+  const value = birthEl.value || '';
+  if (!await persist(() => localLog.mutate('set-setting', { field: 'birth', value }))) renderSettingsUI();
 });
 sexGirlBtn.addEventListener('click', () => {
-  settings.sex = settings.sex === 'female' ? '' : 'female';
-  saveSettings(settings);
-  render();
+  void persist(() => localLog.mutate('set-setting', { field: 'sex', value: settings.sex === 'female' ? '' : 'female' }));
 });
 sexBoyBtn.addEventListener('click', () => {
-  settings.sex = settings.sex === 'male' ? '' : 'male';
-  saveSettings(settings);
-  render();
+  void persist(() => localLog.mutate('set-setting', { field: 'sex', value: settings.sex === 'male' ? '' : 'male' }));
 });
 
 document.querySelectorAll('.tab').forEach(tab => {
@@ -1132,14 +1161,12 @@ document.querySelectorAll('.tab').forEach(tab => {
   });
 });
 
-function handleDeleteClick(ev) {
+async function handleDeleteClick(ev) {
   const btn = ev.target.closest('.del');
   if (!btn) return;
   const id = btn.dataset.id;
   if (!confirm('Remove this weigh-in?')) return;
-  entries = entries.filter(e => e.id !== id);
-  save(entries);
-  render();
+  await persist(() => localLog.mutate('delete-entry', { entryId: id }));
 }
 feedEl.addEventListener('click', handleDeleteClick);
 tableEl.addEventListener('click', handleDeleteClick);
@@ -1149,8 +1176,91 @@ ozEl.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') document.getE
 kgEl.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') document.getElementById('addReading').click(); });
 dtEl.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') document.getElementById('addReading').click(); });
 
-document.getElementById('babySettings').open = birthTs() == null;
-render();
+const syncKeyEl = document.getElementById('syncKey');
+const syncStatusEl = document.getElementById('syncStatus');
+const syncCreateEl = document.getElementById('syncCreate');
+const syncConnectEl = document.getElementById('syncConnect');
+const syncDisconnectEl = document.getElementById('syncDisconnect');
+const syncRetryEl = document.getElementById('syncRetry');
+const syncCopyEl = document.getElementById('syncCopy');
+const mutationControls = [document.getElementById('addReading'), unitLbBtn, unitKgBtn, birthEl, sexGirlBtn, sexBoyBtn];
+for (const control of [...mutationControls, syncCreateEl, syncConnectEl]) control.disabled = true;
+
+async function refreshFromStorage() {
+  const state = await localLog.read();
+  if (state.revision < lastRevision) return;
+  if (state.revision > lastRevision) {
+    lastRevision = state.revision;
+    const view = visibleState(state);
+    entries = view.entries; settings = view.settings;
+    render();
+  }
+  const linked = !!state.sync;
+  const enabled = state.sync?.enabled;
+  if (linked) syncKeyEl.value = state.sync.key;
+  syncKeyEl.readOnly = linked;
+  syncCreateEl.hidden = linked;
+  syncConnectEl.hidden = !!enabled;
+  syncConnectEl.textContent = linked ? 'Reconnect' : 'Connect existing sync';
+  syncCopyEl.hidden = !linked;
+  syncDisconnectEl.hidden = !enabled;
+  syncRetryEl.hidden = !enabled;
+  for (const button of [syncCreateEl, syncConnectEl, syncDisconnectEl, syncRetryEl]) button.disabled = syncActionBusy;
+  const count = state.pending.length;
+  if (!enabled) syncStatusEl.textContent = syncMessage || (linked ? `Disconnected · ${count} changes waiting for reconnect` : 'Saved on this device · sync is off');
+  else if (!navigator.onLine) syncStatusEl.textContent = `Offline · ${count} changes waiting`;
+  else syncStatusEl.textContent = syncMessage || (count ? `${count} changes waiting` : state.sync.syncedAt ? 'Up to date' : 'Waiting to sync');
+}
+
+async function syncAction(action) {
+  syncActionBusy = true;
+  syncMessage = 'Connecting…';
+  await refreshFromStorage();
+  try { await action(); if (syncMessage === 'Connecting…') syncMessage = ''; }
+  catch (error) { syncMessage = error.message; }
+  finally { syncActionBusy = false; await refreshFromStorage(); }
+}
+syncCreateEl.addEventListener('click', () => syncAction(async () => { await syncEngine.create(); await syncEngine.run({ force: true }); }));
+syncConnectEl.addEventListener('click', () => syncAction(async () => { await syncEngine.connect(syncKeyEl.value); await syncEngine.run({ force: true }); }));
+syncDisconnectEl.addEventListener('click', () => syncAction(() => localLog.disconnect()));
+syncRetryEl.addEventListener('click', () => syncEngine.run({ force: true }));
+syncCopyEl.addEventListener('click', async () => {
+  try { await navigator.clipboard.writeText(syncKeyEl.value); syncStatusEl.textContent = 'Sync key copied. Keep it private.'; }
+  catch { syncKeyEl.type = 'text'; syncKeyEl.select(); syncStatusEl.textContent = 'Select and copy the sync key.'; }
+});
+document.getElementById('syncShow').addEventListener('click', ev => {
+  syncKeyEl.type = syncKeyEl.type === 'password' ? 'text' : 'password';
+  ev.target.textContent = syncKeyEl.type === 'password' ? 'Show key' : 'Hide key';
+});
+
+try {
+  // Leave legacy keys intact as a backup; IndexedDB marks migration atomically.
+  localLog = await LocalLog.open({ legacy: () => ({ entries: load(), settings: loadSettings() }) });
+  syncEngine = new SyncEngine(localLog, { onStatus: message => {
+    syncMessage = message;
+    void refreshFromStorage().catch(error => { errEl.textContent = error.message; });
+  } });
+  localLog.subscribe(() => { void refreshFromStorage().catch(error => { errEl.textContent = error.message; }); });
+  await refreshFromStorage();
+  document.getElementById('babySettings').open = birthTs() == null;
+  for (const control of mutationControls) control.disabled = false;
+  void syncEngine.run();
+  setInterval(async () => {
+    if (document.hidden) return;
+    try {
+      const state = await localLog.read();
+      if (state.sync?.enabled && (state.pending.length || Date.now() - (state.sync.syncedAt || 0) > 30000)) void syncEngine.run();
+    } catch (error) { errEl.textContent = error.message; }
+  }, 5000);
+  window.addEventListener('online', () => { void syncEngine.run({ force: true }); });
+  window.addEventListener('offline', () => { void refreshFromStorage(); });
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) { void refreshFromStorage(); void syncEngine.run({ force: true }); }
+  });
+} catch (error) {
+  errEl.textContent = `Could not open local storage: ${error.message}. Existing data has not been removed.`;
+  syncStatusEl.textContent = 'Local storage unavailable. Saving is disabled.';
+}
 </script>
 </body>
 </html>

@@ -19,3 +19,6 @@ wrangler.jsonc
 worker
 package.json
 package-lock.json
+migrations
+tests
+SYNC.md
