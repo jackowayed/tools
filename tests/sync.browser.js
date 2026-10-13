@@ -54,6 +54,51 @@ async function synced(page) {
   await page.waitForFunction(() => document.querySelector('#syncStatus').textContent === 'Up to date');
 }
 
+test('Chromium: collapsed sync settings and compact table follow the entry unit', async () => {
+  const context = await browser.newContext();
+  const page = await open(context);
+  assert.equal(await page.locator('#babySettings summary').textContent(), 'Age & Sync Settings');
+  await page.locator('#babySettings summary').click();
+  assert.equal(await page.locator('#syncKey').isVisible(), false);
+  await page.locator('#babySettings summary').click();
+  assert.equal(await page.locator('#syncKey').isVisible(), true);
+  await page.locator('#feedToggle').click();
+  assert.equal(await page.locator('#feedStateLabel').innerText(), '🍼 After feed');
+  await page.locator('#feedStateLabel').click();
+  assert.equal(await page.locator('#feedStateLabel').innerText(), '🪶 Before feed');
+  await add(page, 3);
+  await page.locator('#feedToggle').check();
+  await add(page, 3.1);
+  assert.equal(await page.locator('#feedStateLabel').innerText(), '🪶 Before feed');
+  await rows(page, 2);
+  assert.deepEqual(await page.locator('#table th').allTextContents(), ['Date', 'Weight', 'Age', '%ile', '', 'Feed']);
+  assert.deepEqual(await page.locator('#table .cell-value').allTextContents(), ['3.1 kg', '3 kg']);
+  assert.deepEqual(await page.locator('#table tbody td:last-child').allTextContents(), ['+100 g', 'Before']);
+  assert.equal(await page.locator('#table .alt').count(), 0);
+  await page.locator('#unitLb').click();
+  await page.waitForFunction(() => document.querySelector('#table .cell-value').textContent.includes('lb'));
+  assert.deepEqual(await page.locator('#table .cell-value').allTextContents(), ['6 lb 13.3 oz', '6 lb 9.8 oz']);
+  assert.deepEqual(await page.locator('#table tbody td:last-child').allTextContents(), ['+3.5 oz', 'Before']);
+  await context.close();
+});
+
+test('Chromium: feed label follows clicks and keyboard when the app module cannot load', async () => {
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await page.route('**/sync-client.js', route => route.abort());
+  await page.goto(origin + '/baby-weight.html');
+  const toggle = page.locator('#feedToggle');
+  const label = page.locator('#feedStateLabel');
+  await toggle.click();
+  assert.equal(await label.innerText(), '🍼 After feed');
+  await label.click();
+  assert.equal(await label.innerText(), '🪶 Before feed');
+  await toggle.focus();
+  await page.keyboard.press('Space');
+  assert.equal(await label.innerText(), '🍼 After feed');
+  await context.close();
+});
+
 test('Chromium: migration, multi-tab adds, two-device sync, offline deletion, reload, save failure', async () => {
   const first = await browser.newContext(), second = await browser.newContext();
   await first.addInitScript(() => {
@@ -64,6 +109,7 @@ test('Chromium: migration, multi-tab adds, two-device sync, offline deletion, re
   await rows(a, 1); await rows(tab, 1);
   assert.equal(await a.locator('#babySettings').evaluate(el => el.open), false);
   assert.equal(await b.locator('#babySettings').evaluate(el => el.open), true);
+  await a.locator('#babySettings summary').click();
   await Promise.all([add(a, 3.1), add(tab, 3.2)]);
   await rows(a, 3); await rows(tab, 3);
   await a.locator('#syncCreate').click(); await synced(a);
@@ -75,6 +121,7 @@ test('Chromium: migration, multi-tab adds, two-device sync, offline deletion, re
   await a.locator('#table .del[data-id="legacy-entry"]').click(); await rows(a, 3); await rows(tab, 3);
   await first.setOffline(false);
   await a.reload(); await a.waitForFunction(() => !document.querySelector('#addReading').disabled); await synced(a);
+  await a.locator('#babySettings summary').click();
   await b.locator('#syncRetry').click(); await synced(b); await rows(b, 3);
   await b.waitForFunction(() => !document.querySelector('#table .del[data-id="legacy-entry"]'));
   await rows(b, 3);
@@ -82,6 +129,7 @@ test('Chromium: migration, multi-tab adds, two-device sync, offline deletion, re
   await a.waitForFunction(() => document.querySelector('#syncStatus').textContent.startsWith('Disconnected'));
   await add(a, 3.4); await rows(a, 4);
   await a.reload(); await a.waitForFunction(() => !document.querySelector('#addReading').disabled);
+  await a.locator('#babySettings summary').click();
   assert.match(await a.locator('#syncStatus').textContent(), /Disconnected.*1 changes/);
   await a.locator('#syncConnect').click(); await synced(a);
   await b.locator('#syncRetry').click(); await synced(b); await rows(b, 4);

@@ -232,6 +232,10 @@
   .ios-switch:checked { background: #7c3aed; }
   .ios-switch:checked::after { transform: translateX(20px); }
   .ios-switch:focus-visible { outline: 2px solid #0f766e; outline-offset: 2px; }
+  #feedStateLabel { order: -1; }
+  #feedStateLabel .after-label { display: none; }
+  #feedToggle:checked + #feedStateLabel .before-label { display: none; }
+  #feedToggle:checked + #feedStateLabel .after-label { display: inline; }
 
   .sex-toggle {
     display: flex;
@@ -473,12 +477,6 @@
     font-weight: 700;
     color: #1a1a1a;
   }
-  table.w-table td.cell-value .alt {
-    display: block;
-    font-size: 0.68rem;
-    font-weight: 600;
-    color: #999;
-  }
   table.w-table td.cell-date {
     text-align: left;
     font-size: 0.74rem;
@@ -523,6 +521,7 @@
   cursor: pointer;
 }
 #syncCard button:disabled { opacity: .55; cursor: wait; }
+#syncCard { margin-top: 1.25rem; }
 #syncKey { padding: 10px; border: 1px solid #d9d9df; border-radius: 8px; font-size: 16px; }
 </style>
 </head>
@@ -556,8 +555,8 @@
     <div class="w-unit">kg</div>
   </div>
   <label class="switch-row" for="feedToggle">
-    <span id="feedStateLabel">🪶 Before feed</span>
     <input type="checkbox" class="ios-switch" id="feedToggle">
+    <span id="feedStateLabel"><span class="before-label">🪶 Before feed</span><span class="after-label">🍼 After feed</span></span>
   </label>
   <div class="datetime-toggle">
     <label class="dt-check" for="useCustomTime">
@@ -570,7 +569,7 @@
 </div>
 
 <details class="card settings-card" id="babySettings">
-  <summary>Baby settings</summary>
+  <summary>Age &amp; Sync Settings</summary>
   <div class="settings-row">
     <label for="birthDate">Birth date</label>
     <input type="date" id="birthDate">
@@ -583,9 +582,7 @@
     </div>
   </div>
   <div class="settings-note" id="settingsNote">Saved automatically in this browser. Percentiles need both birth date and sex (WHO weight-for-age, 0–5 years).</div>
-</details>
-
-<div class="card" id="syncCard">
+<div id="syncCard">
   <h2>Sync between devices</h2>
   <p class="settings-note">Create a sync key here, then paste it on another device. Connecting combines this browser’s weigh-ins with that log; the synced birth date and sex take precedence.</p>
   <label for="syncKey">Sync key</label>
@@ -601,6 +598,7 @@
   <p id="syncStatus" class="settings-note" role="status" aria-live="polite">Opening local storage…</p>
   <p class="settings-note">Anyone with the key can read and change this log. Keep a copy: there is no key recovery. Sync stores readable records on the server over HTTPS; it is not end-to-end encrypted. Deleting a weigh-in hides it on all devices, but the server retains its history. Disconnect keeps this device’s data and pending changes.</p>
 </div>
+</details>
 
 <div class="feed">
   <div class="feed-title">History</div>
@@ -644,11 +642,6 @@ const lbHint = document.getElementById('lbHint');
 const unitLbBtn = document.getElementById('unitLb');
 const unitKgBtn = document.getElementById('unitKg');
 const feedToggle = document.getElementById('feedToggle');
-const feedStateLabel = document.getElementById('feedStateLabel');
-
-function renderFeedState() {
-  feedStateLabel.textContent = feedToggle.checked ? '🍼 After feed' : '🪶 Before feed';
-}
 const dtEl = document.getElementById('datetime');
 const useCustomEl = document.getElementById('useCustomTime');
 const errEl = document.getElementById('err');
@@ -999,7 +992,7 @@ function renderTable() {
   }
   const head =
     '<thead><tr>' +
-    '<th>Date</th><th>Weight</th><th>Feed</th><th>Age</th><th>%ile</th><th>Ate</th><th></th>' +
+    '<th>Date</th><th>Weight</th><th>Age</th><th>%ile</th><th></th><th>Feed</th>' +
     '</tr></thead>';
   let body = '';
   rows.forEach(e => {
@@ -1008,22 +1001,22 @@ function renderTable() {
     const ate = eaten[e.id];
     let ateCell;
     if (!e.afterFeed) {
-      ateCell = '<td class="cell-dim">—</td>';
+      ateCell = '<td class="cell-feed before">Before</td>';
     } else if (!ate) {
       ateCell = '<td class="cell-dim" title="Needs a before-feed weigh-in within 1 hour prior">—</td>';
     } else {
       const sign = ate.diffKg < 0 ? '−' : '+';
-      ateCell = `<td class="cell-ate" title="${escHtml(fmtGrams(Math.abs(ate.diffKg)))} · ${Math.round((e.ts - ate.before.ts) / 60000)} min after before-feed weigh-in">${sign}${escHtml(fmtOzDiff(ate.diffKg))}</td>`;
+      const amount = settings.unit === 'kg' ? fmtGrams(Math.abs(ate.diffKg)) : fmtOzDiff(ate.diffKg);
+      ateCell = `<td class="cell-ate" title="${Math.round((e.ts - ate.before.ts) / 60000)} min after before-feed weigh-in">${sign}${escHtml(amount)}</td>`;
     }
     body +=
       `<tr class="${e.afterFeed ? 'row-after' : ''}">` +
       `<td class="cell-date">${fmtTableDate(e.ts)}</td>` +
-      `<td class="cell-value">${escHtml(p.text)}<span class="alt">${escHtml(fmtAlt(e.kg))}</span></td>` +
-      `<td class="cell-feed ${e.afterFeed ? 'after' : 'before'}">${e.afterFeed ? 'After' : 'Before'}</td>` +
+      `<td class="cell-value">${escHtml(p.text)}${p.unit ? ' ' + escHtml(p.unit) : ''}</td>` +
       `<td class="cell-age">${escHtml(ageCellContent(e))}</td>` +
       `<td class="cell-pct" title="${escHtml(pct.title)}">${pct.html}</td>` +
-      ateCell +
       `<td><button class="del" title="Delete" data-id="${escHtml(e.id)}">✕</button></td>` +
+      ateCell +
       '</tr>';
   });
   tableEl.innerHTML =
@@ -1128,12 +1121,9 @@ document.getElementById('addReading').addEventListener('click', async () => {
   ozEl.value = '';
   kgEl.value = '';
   feedToggle.checked = false;
-  renderFeedState();
   resetDateTimeToggle(useCustomEl, dtEl);
   (settings.unit === 'kg' ? kgEl : lbEl).focus();
 });
-
-feedToggle.addEventListener('change', renderFeedState);
 
 unitLbBtn.addEventListener('click', async () => {
   if (await persist(() => localLog.setUnit('lb'))) lbEl.focus();
