@@ -381,3 +381,46 @@ test('Chromium: clothing column follows percentile and survives reload', async (
     assert.deepEqual(await page.locator('.cell-clothed').allTextContents(), ['✖️', '👕']);
   } finally { await context.close(); }
 });
+
+test('Chromium: reset requires typed confirmation, clears other tabs and can recover server data', async () => {
+  const context = await browser.newContext();
+  try {
+    const a = await open(context);
+    await a.locator('#birthDate').fill('2025-01-02');
+    await a.locator('#sexGirl').click();
+    await add(a, 3.5);
+    await a.locator('#syncCreate').click(); await synced(a);
+    const credential = await a.locator('#syncKey').inputValue();
+    const tab = await open(context);
+    await a.evaluate(() => {
+      localStorage.setItem('babyWeightLog', '[{"id":"legacy","ts":1700000000000,"kg":4}]');
+      localStorage.setItem('babyWeightSettings', '{"sex":"male"}');
+      localStorage.setItem('babyWeightLog.rejected', '[{}]');
+      localStorage.setItem('other-tool', 'keep');
+    });
+    await a.locator('#resetClient').click();
+    assert.match(await a.locator('#resetKeyReminder').innerText(), /Save your sync key/);
+    assert.equal(await a.locator('#resetConfirm').isDisabled(), true);
+    await a.locator('#resetConfirmation').fill('wrong');
+    assert.equal(await a.locator('#resetConfirm').isDisabled(), true);
+    await a.locator('#resetCancel').click();
+    await rows(a, 1);
+    await a.locator('#resetClient').click();
+    await a.locator('#resetConfirmation').fill('DeLeTe');
+    await a.locator('#resetConfirm').click();
+    for (const p of [a, tab]) {
+      await p.waitForFunction(() => !document.querySelector('#resetClient').disabled && document.querySelector('#birthDate').value === '' && document.querySelector('#syncKey').value === '');
+      assert.equal(await p.locator('#table tbody tr').count(), 0);
+      assert.equal(await p.locator('#sexGirl').evaluate(el => el.classList.contains('active')), false);
+      assert.equal(await p.locator('#unitLb').evaluate(el => el.classList.contains('active')), true);
+    }
+    assert.deepEqual(await a.evaluate(() => [localStorage.getItem('babyWeightLog'), localStorage.getItem('babyWeightSettings'), localStorage.getItem('babyWeightLog.rejected'), localStorage.getItem('other-tool')]), [null, null, null, 'keep']);
+    await a.reload();
+    await a.waitForFunction(() => !document.querySelector('#resetClient').disabled);
+    assert.equal(await a.locator('#table tbody tr').count(), 0);
+    await a.locator('#syncKey').fill(credential);
+    await a.locator('#syncConnect').click(); await synced(a); await rows(a, 1);
+    assert.equal(await a.locator('#birthDate').inputValue(), '2025-01-02');
+    assert.equal(await a.locator('#sexGirl').evaluate(el => el.classList.contains('active')), true);
+  } finally { await context.close(); }
+});

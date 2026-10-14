@@ -544,6 +544,14 @@
 #syncCard button:disabled { opacity: .55; cursor: wait; }
 #syncCard { margin-top: 1.25rem; }
 #syncKey { padding: 10px; border: 1px solid #d9d9df; border-radius: 8px; font-size: 16px; }
+  .reset-danger { background: #b42318; color: white; border: 0; border-radius: .5rem; padding: .7rem 1rem; cursor: pointer; }
+  .reset-danger:disabled { opacity: .5; cursor: not-allowed; }
+  #resetClient { margin-top: 1.25rem; }
+  #resetDialog { margin: auto; border: 0; border-radius: 1rem; padding: 1.5rem; max-width: 460px; width: calc(100% - 2rem); }
+  #resetDialog::backdrop { background: #0008; }
+  #resetDialog p { margin: 1rem 0; line-height: 1.5; }
+  #resetConfirmation { display: block; width: 100%; margin: .5rem 0 1rem; padding: .6rem; }
+  .reset-actions { display: flex; gap: .75rem; flex-wrap: wrap; }
 </style>
 </head>
 <body>
@@ -656,7 +664,21 @@
   <p id="syncStatus" class="settings-note" role="status" aria-live="polite">Opening local storage…</p>
   <p class="settings-note">Anyone with the key can read and change this log. Keep a copy: there is no key recovery. Sync stores readable records on the server over HTTPS; it is not end-to-end encrypted. Deleting a weigh-in hides it on all devices, but the server retains its history. Disconnect keeps this device’s data and pending changes.</p>
 </div>
+<button type="button" id="resetClient" class="reset-danger" disabled>Delete &amp; Reset Client</button>
 </details>
+
+<dialog id="resetDialog" aria-labelledby="resetTitle" aria-describedby="resetDescription resetKeyReminder">
+  <h2 id="resetTitle">Delete &amp; Reset Client</h2>
+  <p id="resetDescription">Permanently clear this client’s saved weigh-ins, birth date, sex, preferences, pending changes, and sync connection. Server data will remain unchanged.</p>
+  <p id="resetKeyReminder"><strong>Save your sync key before continuing if you want to access your server data again.</strong> The key will be removed from this client and cannot be recovered here. Cancel to copy it from Settings.</p>
+  <label for="resetConfirmation">Type “delete” to confirm (case insensitive)</label>
+  <input id="resetConfirmation" type="text" autocomplete="off" autocapitalize="off" spellcheck="false">
+  <p id="resetError" role="alert"></p>
+  <div class="reset-actions">
+    <button type="button" id="resetCancel" class="unit-btn">Cancel</button>
+    <button type="button" id="resetConfirm" class="reset-danger" disabled>Delete &amp; Reset Client</button>
+  </div>
+</dialog>
 
 <footer>
   Weigh-ins and settings are saved on this device. When you enable sync, weigh-ins, birth date and sex are also stored on the server. Unit preference stays on this device.<br>
@@ -1360,6 +1382,7 @@ for (const control of [...mutationControls, syncCreateEl, syncConnectEl]) contro
 
 async function refreshFromStorage() {
   const state = await localLog.read();
+  if ((state.resetId ?? null) !== localLog.resetId) { location.reload(); return; }
   if (state.revision < lastRevision) return;
   if (state.revision > lastRevision) {
     lastRevision = state.revision;
@@ -1405,6 +1428,40 @@ document.getElementById('syncShow').addEventListener('click', ev => {
   ev.target.textContent = syncKeyEl.type === 'password' ? 'Show key' : 'Hide key';
 });
 
+const resetDialog = document.getElementById('resetDialog');
+const resetConfirmation = document.getElementById('resetConfirmation');
+const resetConfirm = document.getElementById('resetConfirm');
+const resetCancel = document.getElementById('resetCancel');
+let resetting = false;
+document.getElementById('resetClient').addEventListener('click', () => {
+  resetConfirmation.value = '';
+  resetConfirm.disabled = true;
+  document.getElementById('resetError').textContent = '';
+  resetDialog.showModal();
+  resetConfirmation.focus();
+});
+resetConfirmation.addEventListener('input', () => {
+  resetConfirm.disabled = resetting || resetConfirmation.value.toLowerCase() !== 'delete';
+});
+resetCancel.addEventListener('click', () => resetDialog.close());
+resetDialog.addEventListener('cancel', event => { if (resetting) event.preventDefault(); });
+resetConfirm.addEventListener('click', async () => {
+  if (resetting || resetConfirmation.value.toLowerCase() !== 'delete') return;
+  resetting = true;
+  resetConfirm.disabled = resetCancel.disabled = true;
+  try {
+    // Remove only this app's legacy backups; other tools share this origin.
+    for (const key of [STORAGE_KEY, SETTINGS_KEY, REJECTED_KEY]) localStorage.removeItem(key);
+    await localLog.reset();
+    location.reload();
+  } catch (error) {
+    document.getElementById('resetError').textContent = `Could not reset this client: ${error.message}`;
+    resetting = false;
+    resetCancel.disabled = false;
+    resetConfirm.disabled = resetConfirmation.value.toLowerCase() !== 'delete';
+  }
+});
+
 try {
   // Leave legacy keys intact as a backup; IndexedDB marks migration atomically.
   localLog = await LocalLog.open({ legacy: () => ({ entries: load(), settings: loadSettings() }) });
@@ -1416,6 +1473,7 @@ try {
   await refreshFromStorage();
   document.getElementById('babySettings').open = birthTs() == null;
   for (const control of mutationControls) control.disabled = false;
+  document.getElementById('resetClient').disabled = false;
   void syncEngine.run();
   setInterval(async () => {
     if (document.hidden) return;

@@ -58,7 +58,8 @@ export class LocalLog {
     if (channel) channel.onmessage = () => log.notify(false);
     // Migration and its marker are committed together; other tabs see the winner.
     try {
-      await log.change(state => state || initialState(typeof legacy === 'function' ? legacy() : legacy));
+      const state = await log.change(state => state || initialState(typeof legacy === 'function' ? legacy() : legacy));
+      log.resetId = state.resetId ?? null;
       return log;
     } catch (error) { log.close(); throw error; }
   }
@@ -85,6 +86,8 @@ export class LocalLog {
       let next, failure;
       request.onsuccess = () => {
         try {
+          if (this.resetId !== undefined && (request.result?.resetId ?? null) !== this.resetId)
+            throw new Error('This client was reset. Reload this page.');
           next = update(request.result);
           next.revision++;
           store.put(next, 'current');
@@ -138,6 +141,10 @@ export class LocalLog {
       state.sync.enabled = true;
       return state;
     });
+  }
+  reset() {
+    // Replace local state directly: never queue deletions or settings for sync.
+    return this.change(state => ({ ...initialState({}), revision: state.revision, resetId: crypto.randomUUID() }));
   }
   disconnect() {
     return this.change(state => { if (state.sync) state.sync.enabled = false; return state; });

@@ -254,3 +254,34 @@ test('IndexedDB: editing atomically replaces an entry and rejects stale edits', 
   assert.deepEqual(state.pending.slice(-2).map(op => op.type), ['delete-entry', 'add-entry']);
   await assert.rejects(a.replaceEntry('original', fields), /removed or edited elsewhere/);
 });
+
+test('reset clears all local state, rejects stale tabs and preserves the server log', async () => {
+  const name = crypto.randomUUID();
+  const local = await log(name, { entries: [{ id: 'saved', ts: 1700000000000, kg: 3 }], settings: { birth: '2025-01-01', sex: 'female', unit: 'kg' } });
+  const engine = new SyncEngine(local, { fetcher });
+  const credential = await engine.create();
+  await engine.run();
+  const before = await (await api('pull', { afterSeq: 0 }, credential)).json();
+  const stale = await log(name);
+  await local.mutate('delete-entry', { entryId: 'saved' });
+  const priorRevision = (await local.read()).revision;
+  await local.reset();
+  const fresh = await log(name);
+  const state = await fresh.read();
+  assert.ok(state.revision > priorRevision);
+  assert.deepEqual(state.entries, []);
+  assert.deepEqual(state.tombstones, []);
+  assert.deepEqual(state.pending, []);
+  assert.deepEqual(state.settings, { birth: '', sex: '', unit: 'lb' });
+  assert.deepEqual(state.versions, { birth: 0, sex: 0 });
+  assert.equal(state.sync, null);
+  await assert.rejects(stale.mutate('set-setting', { field: 'sex', value: 'male' }), /client was reset/);
+  await assert.rejects(stale.link(credential), /client was reset/);
+  await engine.run({ force: true });
+  assert.deepEqual(await (await api('pull', { afterSeq: 0 }, credential)).json(), before);
+  const newEngine = new SyncEngine(fresh, { fetcher });
+  await newEngine.connect(credential);
+  await newEngine.run();
+  assert.equal(visibleState(await fresh.read()).entries.length, 1);
+  assert.equal(visibleState(await fresh.read()).settings.sex, 'female');
+});

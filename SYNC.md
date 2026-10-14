@@ -71,6 +71,13 @@ in all tabs; an already-open pre-sync version still writes the legacy store.
 Browser storage clearing or eviction can remove local data and the sync key.
 Keep a copy of the key; another connected device can also supply it.
 
+“Delete & Reset Client” at the bottom of Settings requires typing `delete`
+(case insensitive) and clicking the confirmation button. It replaces the local
+journal with empty defaults and removes the legacy backups, including rejected
+records. No deletion operations are sent to the server. Other current tabs reload,
+and stale writes or connection responses cannot restore the old client state.
+Save the sync key before resetting to reconnect to the unchanged server log later.
+
 Before first connection, the journal is local only. Creating sync uploads it,
 including the current birth date and sex. Joining an existing dataset imports
 entries/tombstones but adopts the remote birth date and sex. Setting edits made
