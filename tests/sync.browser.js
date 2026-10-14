@@ -137,6 +137,13 @@ test('Chromium: collapsed sync settings and compact table follow the entry unit'
   assert.equal(await page.locator('#syncKey').isVisible(), false);
   await page.locator('#babySettings summary').click();
   assert.equal(await page.locator('#syncKey').isVisible(), true);
+  assert.deepEqual(await page.locator('.input-pills .pill-state').allInnerTexts(), ['Naked', 'Before feed']);
+  await page.locator('#clothingStateLabel').click();
+  assert.equal(await page.locator('#clothedToggle').isChecked(), true);
+  assert.equal(await page.locator('#clothingStateLabel').innerText(), 'Clothed');
+  await page.locator('#clothedToggle').focus();
+  await page.keyboard.press('Space');
+  assert.equal(await page.locator('#clothingStateLabel').innerText(), 'Naked');
   await page.locator('#feedToggle').click();
   assert.equal(await page.locator('#feedStateLabel').innerText(), 'After feed');
   await page.locator('#feedStateLabel').click();

@@ -186,57 +186,58 @@
     letter-spacing: 0;
   }
 
-  .switch-row {
+  .input-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+  }
+  .cycle-pill {
+    position: relative;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 0.75rem;
-    background: #f4faf9;
-    border: 2px solid #d7e5e3;
-    border-radius: 0.6rem;
-    padding: 0.6rem 0.75rem;
-    margin-bottom: 0.5rem;
-    cursor: pointer;
-    font-size: 0.9rem;
-    font-weight: 700;
-    color: #1a1a1a;
-  }
-
-  /* Apple-style sliding toggle (uses the app's after-feed purple for ON). */
-  .ios-switch {
-    -webkit-appearance: none;
-    appearance: none;
-    width: 51px;
-    height: 31px;
-    border-radius: 16px;
-    background: #d9d9de;
-    border: none;
-    position: relative;
-    cursor: pointer;
-    margin: 0;
-    flex-shrink: 0;
-    transition: background 0.2s;
-  }
-  .ios-switch::after {
-    content: '';
-    position: absolute;
-    top: 2px;
-    left: 2px;
-    width: 27px;
-    height: 27px;
-    border-radius: 50%;
+    flex: 1 0 auto;
+    gap: 0.4rem;
+    border: 1px solid #d7e5e3;
+    border-radius: 999px;
+    padding: 0.65rem;
+    min-height: 44px;
     background: #fff;
-    box-shadow: 0 3px 8px rgba(0,0,0,0.15), 0 0 1px rgba(0,0,0,0.2);
-    transition: transform 0.2s;
+    color: #555;
+    font-size: 0.8rem;
+    font-weight: 500;
+    cursor: pointer;
   }
-  .ios-switch:checked { background: #7c3aed; }
-  .ios-switch:checked::after { transform: translateX(20px); }
-  .ios-switch:focus-visible { outline: 2px solid #0f766e; outline-offset: 2px; }
-  #feedStateLabel { order: -1; }
+  .cycle-pill:hover { background: #f4faf9; border-color: #91b8b2; }
+  .cycle-pill:has(input:focus-visible) { outline: 2px solid #0f766e; outline-offset: 3px; }
+  /* The label makes the entire pill clickable; the checkbox preserves keyboard use. */
+  .cycle-pill input {
+    position: absolute;
+    top: 50%;
+    right: 0.65rem;
+    transform: translateY(-50%);
+    width: 20px;
+    height: 20px;
+    margin: 0;
+    opacity: 0;
+    cursor: pointer;
+    z-index: 1;
+  }
+  .cycle-pill svg {
+    width: 20px;
+    height: 20px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    flex-shrink: 0;
+  }
+  .cycle-pill .pill-state { display: flex; align-items: center; gap: 0.4rem; white-space: nowrap; }
   #feedStateLabel .after-label { display: none; }
   #feedToggle:checked + #feedStateLabel .before-label { display: none; }
   #feedToggle:checked + #feedStateLabel .after-label { display: inline; }
-  #clothingStateLabel { order: -1; }
   #clothingStateLabel .clothed-label { display: none; }
   #clothedToggle:checked + #clothingStateLabel .naked-label { display: none; }
   #clothedToggle:checked + #clothingStateLabel .clothed-label { display: inline; }
@@ -563,14 +564,26 @@
     </div>
     <div class="w-unit">kg</div>
   </div>
-  <label class="switch-row" for="feedToggle">
-    <input type="checkbox" class="ios-switch" id="feedToggle">
-    <span id="feedStateLabel"><span class="before-label">Before feed</span><span class="after-label">After feed</span></span>
-  </label>
-  <label class="switch-row" for="clothedToggle">
-    <input type="checkbox" class="ios-switch" id="clothedToggle" aria-label="Clothed">
-    <span id="clothingStateLabel"><span class="naked-label">Naked</span><span class="clothed-label">Clothed</span></span>
-  </label>
+  <div class="input-pills">
+    <label class="cycle-pill" for="clothedToggle">
+      <input type="checkbox" id="clothedToggle" aria-label="Clothed" aria-describedby="clothingPillHint">
+      <span class="pill-state" id="clothingStateLabel">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m8 3-5 2-1 6 4 1v9h12v-9l4-1-1-6-5-2a4 4 0 0 1-8 0Z"/></svg>
+        <span class="naked-label">Naked</span><span class="clothed-label">Clothed</span>
+      </span>
+      <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 7a8 8 0 0 0-14-2L3 8m0-5v5h5M4 17a8 8 0 0 0 14 2l3-3m0 5v-5h-5"/></svg>
+    </label>
+    <label class="cycle-pill" for="feedToggle">
+      <input type="checkbox" id="feedToggle" aria-label="After feed" aria-describedby="feedPillHint">
+      <span class="pill-state" id="feedStateLabel">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M9 2h6M10 2v4L7 11v9a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2v-9l-3-5V2M7 14h10M8 10h8"/></svg>
+        <span class="before-label">Before feed</span><span class="after-label">After feed</span>
+      </span>
+      <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 7a8 8 0 0 0-14-2L3 8m0-5v5h5M4 17a8 8 0 0 0 14 2l3-3m0 5v-5h-5"/></svg>
+    </label>
+  </div>
+  <span id="clothingPillHint" hidden>Cycle between naked and clothed.</span>
+  <span id="feedPillHint" hidden>Cycle between before feed and after feed.</span>
   <div class="hint">Clothed percentiles subtract 5 oz and appear in italics as an estimate.</div>
   <div class="datetime-toggle">
     <label class="dt-check" for="useCustomTime">
