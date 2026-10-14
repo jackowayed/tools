@@ -395,7 +395,6 @@
   .pill.after { background: #7c3aed; }
   .pill.pct { background: #334155; }
   .pill.clothing { background: #64748b; }
-  .clothing-status { display: block; font-size: 0.65rem; font-weight: 500; color: #777; }
   .pill.ate { background: #b45309; }
 
   .entry .ate-line {
@@ -1115,7 +1114,7 @@ function renderTable() {
     body +=
       `<tr class="${e.afterFeed ? 'row-after' : 'row-before'}">` +
       `<td class="cell-date">${fmtTableDate(e.ts)}</td>` +
-      `<td class="cell-value">${escHtml(p.text)}${p.unit ? ' ' + escHtml(p.unit) : ''}<span class="clothing-status">${e.clothed ? 'Clothed' : 'Naked'}</span></td>` +
+      `<td class="cell-value">${escHtml(p.text)}${p.unit ? ' ' + escHtml(p.unit) : ''}</td>` +
       `<td class="cell-age">${escHtml(ageCellContent(e))}</td>` +
       `<td class="cell-pct" title="${escHtml(pct.title)}">${pct.html}</td>` +
       `<td class="cell-clothed" aria-label="${e.clothed ? 'Clothed' : 'Not clothed'}" title="${e.clothed ? 'Clothed' : 'Not clothed'}">${e.clothed ? '👕' : '✖️'}</td>` +
