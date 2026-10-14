@@ -154,13 +154,13 @@ test('Chromium: collapsed sync settings and compact table follow the entry unit'
   assert.equal(await page.locator('#feedStateLabel').innerText(), 'Before feed');
   await rows(page, 2);
   assert.deepEqual(await page.locator('#table th').allTextContents(), ['Date', 'Weight', 'Age', 'Percentile', 'Clothed', 'Change fromprevious matching', 'Time', 'Before/After', '']);
-  assert.deepEqual(await page.locator('#table .cell-value').allTextContents(), ['3.1 kgNaked', '3 kgNaked']);
+  assert.deepEqual(await page.locator('#table .cell-value').allTextContents(), ['3.1 kg', '3 kg']);
   assert.deepEqual(await page.locator('#table tbody td:nth-child(6)').allTextContents(), ['+100 g', '—']);
   assert.equal(await page.locator('#table tbody .del').count(), 2);
   assert.equal(await page.locator('#table .alt').count(), 0);
   await page.locator('#unitLb').click();
   await page.waitForFunction(() => document.querySelector('#table .cell-value').textContent.includes('lb'));
-  assert.deepEqual(await page.locator('#table .cell-value').allTextContents(), ['6 lb 13.3 ozNaked', '6 lb 9.8 ozNaked']);
+  assert.deepEqual(await page.locator('#table .cell-value').allTextContents(), ['6 lb 13.3 oz', '6 lb 9.8 oz']);
   assert.deepEqual(await page.locator('#table tbody td:nth-child(6)').allTextContents(), ['+3.5 oz', '—']);
   await context.close();
 });
@@ -291,8 +291,8 @@ test('Chromium: past entries can be corrected, cancelled, reloaded and synced', 
   });
   await synced(a);
   await b.locator('#syncRetry').click(); await synced(b); await rows(b, 1);
-  await b.waitForFunction(() => document.querySelector('#table .cell-value').textContent === '7 lb 0.9 ozClothed');
-  assert.equal(await b.locator('#table .cell-value').textContent(), '7 lb 0.9 ozClothed');
+  await b.waitForFunction(() => document.querySelector('#table .cell-value').textContent === '7 lb 0.9 oz');
+  assert.equal(await b.locator('#table .cell-value').textContent(), '7 lb 0.9 oz');
   assert.equal(await b.locator('#table .cell-feed').textContent(), 'After');
   assert.equal(await b.locator('#table .cell-time').textContent(), '12:05 AM');
   await first.close(); await second.close();
@@ -353,7 +353,7 @@ test('Chromium: clothed percentile deducts 5 oz; changes skip other clothing sta
   await add(page, 3.5); await rows(page, 5);
   assert.equal(await page.locator('#clothedToggle').isChecked(), false);
   await page.reload(); await rows(page, 5);
-  assert.equal(await page.locator('#table .clothing-status').first().textContent(), 'Clothed');
+  assert.equal(await page.locator('#table .cell-clothed').first().textContent(), '👕');
   // Deleting the previous clothed reading removes only its matching change.
   page.once('dialog', dialog => dialog.accept());
   await row('c1').locator('.del').click(); await rows(page, 4);
