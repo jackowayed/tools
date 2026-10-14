@@ -363,6 +363,68 @@ test('Chromium: clothed percentile deducts 5 oz; changes skip other clothing sta
 });
 
 
+test('Chromium: history clothing and feed filters combine in both views without changing calculations', async () => {
+  const context = await browser.newContext({ viewport: { width: 375, height: 812 } });
+  try {
+    await context.addInitScript(() => {
+      localStorage.setItem('babyWeightSettings', JSON.stringify({ unit: 'kg' }));
+      localStorage.setItem('babyWeightLog', JSON.stringify([
+        { id: 'nb', type: 'weight', ts: 1700000000000, kg: 3, afterFeed: false },
+        { id: 'cb', type: 'weight', ts: 1700000600000, kg: 3.2, afterFeed: false, clothed: true },
+        { id: 'na', type: 'weight', ts: 1700001200000, kg: 3.1, afterFeed: true },
+        { id: 'ca', type: 'weight', ts: 1700001800000, kg: 3.3, afterFeed: true, clothed: true },
+      ]));
+    });
+    const page = await open(context);
+    await rows(page, 4);
+    const clothing = page.getByLabel('Clothing', { exact: true });
+    const feed = page.getByLabel('Feed timing', { exact: true });
+    assert.equal(await clothing.inputValue(), 'all');
+    assert.equal(await feed.inputValue(), 'all');
+    const expected = [
+      ['ca', 'na', 'cb', 'nb'], ['cb', 'nb'], ['ca', 'na'],
+      ['ca', 'cb'], ['cb'], ['ca'],
+      ['na', 'nb'], ['nb'], ['na'],
+    ];
+    let index = 0;
+    for (const c of ['all', 'clothed', 'naked']) {
+      for (const f of ['all', 'before', 'after']) {
+        await clothing.selectOption(c);
+        await feed.selectOption(f);
+        for (const view of ['Table', 'List']) {
+          await page.locator('#tab' + view).click();
+          const root = view === 'Table' ? '#table' : '#feed';
+          assert.deepEqual(await page.locator(`${root} .edit`).evaluateAll(els => els.map(el => el.dataset.id)), expected[index]);
+          if (f === 'after') {
+            if (view === 'Table') {
+              assert.ok((await page.locator('#table .cell-change').allTextContents()).every(text => text === '+100 g'));
+            } else {
+              assert.equal(await page.locator('#feed .ate-line').count(), expected[index].length);
+            }
+          }
+        }
+        index++;
+      }
+    }
+    // A new reading that doesn't match stays hidden, and deleting the match shows an empty result.
+    await add(page, 3.5);
+    await rows(page, 1);
+    await page.locator('#tabTable').click();
+    assert.equal(await clothing.inputValue(), 'naked');
+    assert.equal(await feed.inputValue(), 'after');
+    page.once('dialog', dialog => dialog.accept());
+    await page.locator('#table .del[data-id="na"]').click();
+    await page.locator('#table .empty').waitFor();
+    for (const view of ['Table', 'List']) {
+      await page.locator('#tab' + view).click();
+      assert.equal(await page.locator(`${view === 'Table' ? '#table' : '#feed'} .empty`).textContent(), 'No weigh-ins match these filters.');
+    }
+    await clothing.selectOption('all');
+    await feed.selectOption('all');
+    await rows(page, 4);
+  } finally { await context.close(); }
+});
+
 test('Chromium: clothing column follows percentile and survives reload', async () => {
   const context = await browser.newContext();
   try {

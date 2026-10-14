@@ -344,6 +344,30 @@
     margin-bottom: 0.2rem;
   }
 
+  .history-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+  }
+  .history-filters > div {
+    flex: 1 1 140px;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: #555;
+  }
+  .history-filters select {
+    appearance: none;
+    padding-right: 2.5rem;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='m1 1 5 5 5-5' fill='none' stroke='%23555' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.8rem center;
+    background-size: 12px 8px;
+  }
+
   .entry {
     background: #fff;
     border-radius: 0.75rem;
@@ -620,6 +644,24 @@
 <div class="feed">
   <div class="feed-title">History</div>
   <div class="settings-summary" id="settingsSummary"></div>
+  <div class="history-filters" role="group" aria-label="History filters">
+    <div>
+      <label for="historyClothing">Clothing</label>
+      <select id="historyClothing">
+        <option value="all">All</option>
+        <option value="clothed">Clothed</option>
+        <option value="naked">Naked</option>
+      </select>
+    </div>
+    <div>
+      <label for="historyFeed">Feed timing</label>
+      <select id="historyFeed">
+        <option value="all">All</option>
+        <option value="before">Before feed</option>
+        <option value="after">After feed</option>
+      </select>
+    </div>
+  </div>
   <div class="tabs">
     <button class="tab active" data-view="table" id="tabTable">Table</button>
     <button class="tab" data-view="list" id="tabList">List</button>
@@ -718,6 +760,8 @@ const useCustomEl = document.getElementById('useCustomTime');
 const errEl = document.getElementById('err');
 const feedEl = document.getElementById('feed');
 const tableEl = document.getElementById('table');
+const historyClothingEl = document.getElementById('historyClothing');
+const historyFeedEl = document.getElementById('historyFeed');
 const birthEl = document.getElementById('birthDate');
 const sexGirlBtn = document.getElementById('sexGirl');
 const sexBoyBtn = document.getElementById('sexBoy');
@@ -1077,13 +1121,24 @@ function render() {
   tableEl.style.display = currentView === 'table' ? '' : 'none';
 }
 
+function matchesHistoryFilters(entry) {
+  return (historyClothingEl.value === 'all'
+      || (entry.clothed === true) === (historyClothingEl.value === 'clothed'))
+    && (historyFeedEl.value === 'all'
+      || (entry.afterFeed === true) === (historyFeedEl.value === 'after'));
+}
+
+function historyEmptyMessage() {
+  return entries.length === 0 ? 'No weigh-ins yet.' : 'No weigh-ins match these filters.';
+}
+
 function renderList() {
   const eaten = computeEaten();
-  if (entries.length === 0) {
-    feedEl.innerHTML = '<div class="empty">No weigh-ins yet.</div>';
+  const sorted = entries.filter(matchesHistoryFilters).sort((a, b) => b.ts - a.ts);
+  if (sorted.length === 0) {
+    feedEl.innerHTML = `<div class="empty">${historyEmptyMessage()}</div>`;
     return;
   }
-  const sorted = [...entries].sort((a, b) => b.ts - a.ts);
   feedEl.innerHTML = '';
   sorted.forEach(e => {
     const div = document.createElement('div');
@@ -1123,9 +1178,10 @@ function renderList() {
 }
 
 function renderTable() {
+  // Keep all rows for change calculations, even when the previous reading is hidden.
   const rows = [...entries].sort((a, b) => b.ts - a.ts);
-  if (rows.length === 0) {
-    tableEl.innerHTML = '<div class="empty">No weigh-ins yet.</div>';
+  if (!rows.some(matchesHistoryFilters)) {
+    tableEl.innerHTML = `<div class="empty">${historyEmptyMessage()}</div>`;
     return;
   }
   const head =
@@ -1134,6 +1190,7 @@ function renderTable() {
     '</tr></thead>';
   let body = '';
   rows.forEach((e, index) => {
+    if (!matchesHistoryFilters(e)) return;
     const p = fmtPrimary(e.kg);
     const pct = pctCellContent(e);
     const previous = rows.slice(index + 1).find(p => (p.clothed === true) === (e.clothed === true));
@@ -1303,6 +1360,10 @@ sexGirlBtn.addEventListener('click', () => {
 sexBoyBtn.addEventListener('click', () => {
   void persist(() => localLog.mutate('set-setting', { field: 'sex', value: settings.sex === 'male' ? '' : 'male' }));
 });
+
+for (const filter of [historyClothingEl, historyFeedEl]) {
+  filter.addEventListener('change', render);
+}
 
 document.querySelectorAll('.tab').forEach(tab => {
   tab.addEventListener('click', () => {
