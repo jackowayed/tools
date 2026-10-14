@@ -424,13 +424,16 @@
     text-transform: uppercase;
     padding: 0.18rem 0.55rem;
     border-radius: 1rem;
+    border: 1px solid transparent;
     color: #fff;
     white-space: nowrap;
   }
-  .pill.before { background: #0f766e; }
-  .pill.after { background: #7c3aed; }
+  .pill.before { background: #e7f4f1; color: #0b5e57; border-color: #0f766e; }
+  .pill.after { background: #f3edff; color: #6d28d9; border-color: #7c3aed; }
   .pill.pct { background: #334155; }
   .pill.clothing { background: #64748b; }
+  /* Naked entries show a blank placeholder that keeps the following pills aligned. */
+  .pill.clothing.naked { visibility: hidden; }
   .pill.ate { background: #b45309; }
 
   .entry .ate-line {
@@ -1167,7 +1170,7 @@ function renderList() {
       `<span class="icon">${e.afterFeed ? '🍼' : '🪶'}</span>` +
       `<div class="body">` +
         `<div class="main"><span class="reading">${escHtml(p.text)} <span class="unit">${escHtml(p.unit)}</span></span><span class="alt">${escHtml(fmtAlt(e.kg))}</span></div>` +
-        `<div class="sub">${feedPill} <span class="pill clothing">${e.clothed ? 'clothed' : 'naked'}</span> ${pctHtml} ${ageBit}</div>` +
+        `<div class="sub">${feedPill} ${e.clothed ? '<span class="pill clothing">clothed</span>' : '<span class="pill clothing naked" aria-hidden="true">clothed</span>'} ${pctHtml} ${ageBit}</div>` +
         ateHtml +
         `<div class="when">${fmtWhen(e.ts)}</div>` +
       `</div>` +
