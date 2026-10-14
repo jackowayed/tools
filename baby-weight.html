@@ -256,8 +256,20 @@
     padding: 0.55rem 0;
     border-radius: 0.6rem;
     cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35em;
+    line-height: 1.25;
   }
   .sex-btn.active { background: #0f766e; border-color: #0f766e; color: #fff; }
+  .sex-btn .sex-sym {
+    display: inline-block;
+    line-height: 1;
+    font-family: "Segoe UI Symbol", "Noto Sans Symbols 2", "Apple Symbols", system-ui, sans-serif;
+    font-variant-emoji: text;
+    -webkit-font-variant-emoji: text;
+  }
 
   .settings-row {
     display: flex;
@@ -623,8 +635,8 @@
   <div class="settings-row">
     <label>Sex</label>
     <div class="sex-toggle" role="group" aria-label="Sex">
-      <button class="sex-btn" id="sexGirl" type="button">♀ Girl</button>
-      <button class="sex-btn" id="sexBoy" type="button">♂ Boy</button>
+      <button class="sex-btn" id="sexGirl" type="button"><span class="sex-sym" aria-hidden="true">♀︎</span><span>Girl</span></button>
+      <button class="sex-btn" id="sexBoy" type="button"><span class="sex-sym" aria-hidden="true">♂︎</span><span>Boy</span></button>
     </div>
   </div>
   <div class="settings-note" id="settingsNote">Saved automatically in this browser. Percentiles need both birth date and sex (WHO weight-for-age, 0–5 years).</div>
