@@ -235,6 +235,13 @@
     flex-shrink: 0;
   }
   .cycle-pill .pill-state { display: flex; align-items: center; gap: 0.4rem; white-space: nowrap; }
+  /* Feed toggle matches the table row colors so before/after is differentiable at a glance. */
+  .cycle-pill:has(#feedToggle:not(:checked)) { background: #e7f4f1; border-color: #0f766e; color: #0b5e57; }
+  .cycle-pill:has(#feedToggle:not(:checked)):hover { background: #d9efea; border-color: #0f766e; }
+  .cycle-pill:has(#feedToggle:checked) { background: #f3edff; border-color: #7c3aed; color: #6d28d9; }
+  .cycle-pill:has(#feedToggle:checked):hover { background: #e9ddff; border-color: #7c3aed; }
+  /* Naked shows a blank where the shirt was; visibility keeps the label at the same spot. */
+  #clothedToggle:not(:checked) + #clothingStateLabel svg { visibility: hidden; }
   #feedStateLabel .after-label { display: none; }
   #feedToggle:checked + #feedStateLabel .before-label { display: none; }
   #feedToggle:checked + #feedStateLabel .after-label { display: inline; }
