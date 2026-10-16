@@ -486,3 +486,30 @@ test('Chromium: reset requires typed confirmation, clears other tabs and can rec
     assert.equal(await a.locator('#sexGirl').evaluate(el => el.classList.contains('active')), true);
   } finally { await context.close(); }
 });
+
+test('Chromium: table defaults to latest 12 matching weights and can show all', async () => {
+  const context = await browser.newContext();
+  try {
+    await context.addInitScript(() => {
+      localStorage.setItem('babyWeightSettings', JSON.stringify({ unit: 'kg' }));
+      localStorage.setItem('babyWeightLog', JSON.stringify(Array.from({ length: 26 }, (_, i) => ({
+        id: `weight-${i}`, type: 'weight', ts: 1700000000000 + i * 60000,
+        kg: 3 + i / 10, afterFeed: i % 2 === 0,
+      }))));
+    });
+    const page = await open(context);
+    await rows(page, 12);
+    assert.equal(await page.locator('#table .edit').first().getAttribute('data-id'), 'weight-25');
+    assert.equal(await page.locator('#table .edit').last().getAttribute('data-id'), 'weight-14');
+    assert.equal(await page.locator('#table .cell-change').last().textContent(), '+100 g');
+    await page.locator('#toggleAllWeights').click(); await rows(page, 26);
+    await page.locator('#toggleAllWeights').click(); await rows(page, 12);
+    await page.locator('#historyFeed').selectOption('after'); await rows(page, 12);
+    assert.equal(await page.locator('#table .edit').last().getAttribute('data-id'), 'weight-2');
+    await page.locator('#toggleAllWeights').click(); await rows(page, 13);
+    await page.locator('#tabList').click();
+    assert.equal(await page.locator('#feed .entry').count(), 13);
+    await page.reload(); await rows(page, 12);
+    assert.equal(await page.locator('#toggleAllWeights').getAttribute('aria-expanded'), 'false');
+  } finally { await context.close(); }
+});

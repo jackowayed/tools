@@ -779,6 +779,7 @@ const todayPercentilesNoteEl = document.getElementById('todayPercentilesNote');
 const todayPercentilesTableEl = document.getElementById('todayPercentilesTable');
 
 let currentView = 'table';
+let showAllWeights = false;
 
 function makeId() {
   return crypto.randomUUID();
@@ -1197,8 +1198,12 @@ function renderTable() {
     '<th>Date</th><th>Weight</th><th>Age</th><th>Percentile</th><th title="Weight change from the previous weigh-in with the same clothing status, within 80 minutes">Δ</th><th>Time</th><th>Before/After</th><th aria-label="Actions"></th>' +
     '</tr></thead>';
   let body = '';
+  let visibleCount = 0;
+  const matchingCount = rows.filter(matchesHistoryFilters).length;
   rows.forEach((e, index) => {
     if (!matchesHistoryFilters(e)) return;
+    if (!showAllWeights && visibleCount >= 12) return;
+    visibleCount++;
     const p = fmtPrimary(e.kg);
     const pct = e.clothed ? { html: '<span aria-label="Clothed">👕</span>', title: 'Clothed' } : pctCellContent(e);
     const previous = rows.slice(index + 1).find(p => (p.clothed === true) === (e.clothed === true));
@@ -1223,7 +1228,8 @@ function renderTable() {
       '</tr>';
   });
   tableEl.innerHTML =
-    `<div class="table-wrap"><table class="w-table">${head}<tbody>${body}</tbody></table></div>`;
+    `<div class="table-wrap"><table class="w-table">${head}<tbody>${body}</tbody></table></div>`
+    + (matchingCount > 12 ? `<button class="unit-btn" type="button" id="toggleAllWeights" aria-expanded="${showAllWeights}">${showAllWeights ? 'Show latest 12' : 'Show all (' + matchingCount + ')'}</button>` : '');
 }
 
 async function persist(action) {
@@ -1421,6 +1427,12 @@ function handleEditClick(ev) {
   feedToggle.focus({ preventScroll: true });
 }
 feedEl.addEventListener('click', handleEditClick);
+tableEl.addEventListener('click', event => {
+  if (event.target.closest('#toggleAllWeights')) {
+    showAllWeights = !showAllWeights;
+    renderTable();
+  }
+});
 tableEl.addEventListener('click', handleEditClick);
 
 async function handleDeleteClick(ev) {
