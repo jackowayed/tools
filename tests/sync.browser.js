@@ -153,15 +153,15 @@ test('Chromium: collapsed sync settings and compact table follow the entry unit'
   await add(page, 3.1);
   assert.equal(await page.locator('#feedStateLabel').innerText(), 'Before feed');
   await rows(page, 2);
-  assert.deepEqual(await page.locator('#table th').allTextContents(), ['Date', 'Weight', 'Age', 'Percentile', 'Clothed', 'Change fromprevious matching', 'Time', 'Before/After', '']);
+  assert.deepEqual(await page.locator('#table th').allTextContents(), ['Date', 'Weight', 'Age', 'Percentile', 'Δ', 'Time', 'Before/After', '']);
   assert.deepEqual(await page.locator('#table .cell-value').allTextContents(), ['3.1 kg', '3 kg']);
-  assert.deepEqual(await page.locator('#table tbody td:nth-child(6)').allTextContents(), ['+100 g', '—']);
+  assert.deepEqual(await page.locator('#table tbody td:nth-child(5)').allTextContents(), ['+100 g', '-']);
   assert.equal(await page.locator('#table tbody .del').count(), 2);
   assert.equal(await page.locator('#table .alt').count(), 0);
   await page.locator('#unitLb').click();
   await page.waitForFunction(() => document.querySelector('#table .cell-value').textContent.includes('lb'));
   assert.deepEqual(await page.locator('#table .cell-value').allTextContents(), ['6 lb 13.3 oz', '6 lb 9.8 oz']);
-  assert.deepEqual(await page.locator('#table tbody td:nth-child(6)').allTextContents(), ['+3.5 oz', '—']);
+  assert.deepEqual(await page.locator('#table tbody td:nth-child(5)').allTextContents(), ['+3.5 oz', '-']);
   await context.close();
 });
 
@@ -248,7 +248,7 @@ test('Chromium: past entries can be corrected, cancelled, reloaded and synced', 
   await a.locator('#datetime').fill('2026-10-01T13:05');
   await a.locator('#addReading').click();
   await rows(a, 1);
-  assert.equal(await a.locator('#table thead th:nth-child(7)').textContent(), 'Time');
+  assert.equal(await a.locator('#table thead th:nth-child(6)').textContent(), 'Time');
   assert.equal(await a.locator('#table .cell-time').textContent(), '1:05 PM');
   assert.equal(await a.locator('#feedStateLabel').innerText(), 'Before feed');
   assert.ok(await a.evaluate(() => !!(document.querySelector('.feed').compareDocumentPosition(document.querySelector('#babySettings')) & Node.DOCUMENT_POSITION_FOLLOWING)));
@@ -305,20 +305,20 @@ test('Chromium: row changes compare consecutive weigh-ins regardless of feed sta
     localStorage.setItem('babyWeightSettings', JSON.stringify({ unit: 'kg' }));
     localStorage.setItem('babyWeightLog', JSON.stringify([
       { id: 'oldest', type: 'weight', ts: 1700000000000, kg: 3, afterFeed: true },
-      { id: 'middle', type: 'weight', ts: 1700100000000, kg: 3.1, afterFeed: false },
-      { id: 'newer', type: 'weight', ts: 1700200000000, kg: 3.05, afterFeed: false },
-      { id: 'latest', type: 'weight', ts: 1700300000000, kg: 3.05, afterFeed: true },
+      { id: 'middle', type: 'weight', ts: 1700004800000, kg: 3.1, afterFeed: false },
+      { id: 'newer', type: 'weight', ts: 1700004860000, kg: 3.05, afterFeed: false },
+      { id: 'latest', type: 'weight', ts: 1700004920000, kg: 3.05, afterFeed: true },
     ]));
   });
   const page = await open(context);
   await rows(page, 4);
-  assert.deepEqual(await page.locator('.cell-change').allTextContents(), ['0 g', '−50 g', '+100 g', '—']);
+  assert.deepEqual(await page.locator('.cell-change').allTextContents(), ['0 g', '−50 g', '+100 g', '-']);
   assert.deepEqual(await page.locator('.cell-feed').allTextContents(), ['After', 'Before', 'Before', 'After']);
   assert.equal(await page.locator('#table tbody tr:first-child td:last-child button:first-child').getAttribute('aria-label'), 'Delete weigh-in');
   // Removing the previous weigh-in recalculates the change against the new adjacent row.
   page.once('dialog', dialog => dialog.accept());
   await page.locator('#table .del[data-id="middle"]').click(); await rows(page, 3);
-  assert.deepEqual(await page.locator('.cell-change').allTextContents(), ['0 g', '+50 g', '—']);
+  assert.deepEqual(await page.locator('.cell-change').allTextContents(), ['0 g', '-', '-']);
   await context.close();
 });
 
@@ -337,11 +337,11 @@ test('Chromium: clothed percentile deducts 5 oz; changes skip other clothing sta
   const page = await open(context);
   await rows(page, 4);
   const row = id => page.locator(`#table tr:has(.edit[data-id="${id}"])`);
-  assert.equal(await row('n2').locator('.cell-pct').textContent(), await row('c2').locator('.cell-pct').textContent());
+  assert.equal(await row('c2').locator('.cell-pct').textContent(), '👕');
   assert.equal(await row('n2').locator('.cell-pct em').count(), 0);
-  assert.equal(await row('c2').locator('.cell-pct em').evaluate(el => getComputedStyle(el).fontStyle), 'italic');
-  assert.match(await row('c2').locator('.cell-pct').getAttribute('title'), /5 oz/);
-  assert.deepEqual(await page.locator('.cell-change').allTextContents(), ['+100 g', '+100 g', '—', '—']);
+  assert.equal(await row('c2').locator('.cell-pct em').count(), 0);
+  assert.match(await row('c2').locator('.cell-pct').getAttribute('title'), /Clothed/);
+  assert.deepEqual(await page.locator('.cell-change').allTextContents(), ['+100 g', '+100 g', '-', '-']);
   await page.locator('#tabList').click();
   assert.deepEqual(await page.locator('.ate-line').allTextContents(), [
     '🍼 Ate ~+100 g (3.5 oz) · 20 min after before-feed weigh-in',
@@ -353,11 +353,11 @@ test('Chromium: clothed percentile deducts 5 oz; changes skip other clothing sta
   await add(page, 3.5); await rows(page, 5);
   assert.equal(await page.locator('#clothedToggle').isChecked(), false);
   await page.reload(); await rows(page, 5);
-  assert.equal(await page.locator('#table .cell-clothed').first().textContent(), '👕');
+  assert.equal(await page.locator('#table .cell-pct').first().textContent(), '👕');
   // Deleting the previous clothed reading removes only its matching change.
   page.once('dialog', dialog => dialog.accept());
   await row('c1').locator('.del').click(); await rows(page, 4);
-  assert.equal(await row('c2').locator('.cell-change').textContent(), '—');
+  assert.equal(await row('c2').locator('.cell-change').textContent(), '-');
   assert.equal(await row('n2').locator('.cell-change').textContent(), '+100 g');
   await context.close();
 });
@@ -425,22 +425,22 @@ test('Chromium: history clothing and feed filters combine in both views without 
   } finally { await context.close(); }
 });
 
-test('Chromium: clothing column follows percentile and survives reload', async () => {
+test('Chromium: clothed percentile emoji survives reload without birth settings', async () => {
   const context = await browser.newContext();
   try {
     const page = await open(context);
     await page.locator('#clothedToggle').check();
     await add(page, 3.5);
     await rows(page, 1);
-    assert.deepEqual(await page.locator('#table th').allTextContents(), ['Date', 'Weight', 'Age', 'Percentile', 'Clothed', 'Change fromprevious matching', 'Time', 'Before/After', '']);
-    assert.equal(await page.locator('.cell-clothed').textContent(), '👕');
+    assert.deepEqual(await page.locator('#table th').allTextContents(), ['Date', 'Weight', 'Age', 'Percentile', 'Δ', 'Time', 'Before/After', '']);
+    assert.equal(await page.locator('.cell-pct').textContent(), '👕');
     assert.equal(await page.locator('#clothedToggle').isChecked(), false);
     await add(page, 3.6);
     await rows(page, 2);
-    assert.deepEqual(await page.locator('.cell-clothed').allTextContents(), ['✖️', '👕']);
+    assert.deepEqual(await page.locator('.cell-pct').allTextContents(), ['—', '👕']);
     await page.reload();
     await rows(page, 2);
-    assert.deepEqual(await page.locator('.cell-clothed').allTextContents(), ['✖️', '👕']);
+    assert.deepEqual(await page.locator('.cell-pct').allTextContents(), ['—', '👕']);
   } finally { await context.close(); }
 });
 
