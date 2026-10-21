@@ -1,5 +1,5 @@
 // Shared, versioned wire format. Property order here defines canonical JSON.
-export const VERSION = 1;
+export const VERSION = 2;
 export const MAX_BATCH = 50;
 export const PAGE_SIZE = 100;
 export const MAX_OPERATIONS = 10000;
@@ -19,13 +19,15 @@ export function validBirth(value) {
 }
 
 export function canonicalOperation(input) {
-  if (!input || input.v !== VERSION || typeof input.opId !== 'string' || !ID.test(input.opId)) throw new Error('Invalid operation version or ID.');
-  const op = { v: VERSION, opId: input.opId, type: input.type };
-  if (op.type === 'add-entry' || op.type === 'delete-entry') {
+  // Preserve historical payloads exactly so existing operation IDs remain retryable.
+  if (!input || ![1, VERSION].includes(input.v) || typeof input.opId !== 'string' || !ID.test(input.opId)) throw new Error('Invalid operation version or ID.');
+  const op = { v: input.v, opId: input.opId, type: input.type };
+  if (op.type === 'update-entry' && op.v < 2) throw new Error('Updates require protocol version 2.');
+  if (['add-entry', 'update-entry', 'delete-entry'].includes(op.type)) {
     if (typeof input.entryId !== 'string' || !ID.test(input.entryId)) throw new Error('Invalid entry ID.');
     op.entryId = input.entryId;
   }
-  if (op.type === 'add-entry') {
+  if (op.type === 'add-entry' || op.type === 'update-entry') {
     if (!Number.isSafeInteger(input.timestamp) || Math.abs(input.timestamp) > 8640000000000000
       || typeof input.kg !== 'number' || !Number.isFinite(input.kg) || input.kg <= 0 || input.kg > 50
       || typeof input.afterFeed !== 'boolean'

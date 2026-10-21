@@ -1,6 +1,6 @@
 # Baby-weight sync
 
-The pilot syncs weigh-ins, deletions, birth date, and sex. Unit preference stays
+The pilot syncs weigh-ins, edits, deletions, birth date, and sex. Unit preference stays
 on each device. There are no accounts and no end-to-end encryption. HTTPS
 protects transport; the Worker and database can read synced health records.
 A generated sync key grants read/write access. The server stores its SHA-256
@@ -48,9 +48,19 @@ existing tools Worker; other tools and proxy routes retain their behavior.
 `migrations`, tests, dependencies, and this document are excluded from static
 assets. No remote database is created by installing dependencies or running tests.
 
+Deploy the Worker and client assets together for protocol v2. No additional D1
+migration is needed for updates: each edit is stored in the existing operation log.
+The Worker rejects v1 request envelopes before accepting operations and tells old
+clients to reload. Existing keys and v1 log operations remain valid. The client
+upgrades the existing IndexedDB database to version 2 without clearing data;
+open v1 connections close, and old clients cannot reopen it with version 1.
+Previously queued v1 operations retain their IDs and payloads for safe retries.
+Historical delete/add edits and duplicates are not rewritten automatically: their
+intent and whether either operation was already accepted cannot be inferred safely.
+
 ## Local durability and migration
 
-IndexedDB contains one bounded personal-log state record: entries, tombstones,
+IndexedDB contains one bounded personal-log state record: original entries, accepted edits, tombstones,
 accepted settings and versions, pending operations, credential, cursor, and a
 revision. Every mutation reads the latest record and commits the new state in a
 strict-durability read/write transaction. IndexedDB serializes these transactions
@@ -92,7 +102,8 @@ network connection depends on the browser's HTTP cache.
 
 ## Protocol and convergence
 
-All bodies have `v: 1`. API responses use `Cache-Control: no-store`.
+Request and response envelopes have `v: 2`. Operations can be historical `v: 1`
+or current `v: 2`; edits require v2. API responses use `Cache-Control: no-store`.
 
 - `POST /api/sync/create` returns `{v, datasetId, key}`. Pull never creates data.
 - `POST /api/sync/append`, authenticated with `Authorization: Bearer <key>`,
@@ -101,7 +112,7 @@ All bodies have `v: 1`. API responses use `Cache-Control: no-store`.
   and returns `{v, records: [{seq, op}], cursor, hasMore}` in ascending order.
 
 `sync-protocol.js` validates and canonicalizes immutable JSON operations:
-`add-entry`, `delete-entry`, and per-field `set-setting`. IDs are UUIDs for new
+`add-entry`, `update-entry`, `delete-entry`, and per-field `set-setting`. IDs are UUIDs for new
 records. No client timestamp is used for conflict resolution.
 Add operations optionally include `clothed: true`; omitted or false means naked.
 Canonical operations omit false to preserve the payloads and retry behavior of
@@ -115,17 +126,24 @@ different measurements, and writes beyond the quota. Only the specific
 the original sequence. A conflict rolls back the whole append batch. Same-ID,
 same-content entries imported under different operation IDs still render once.
 
-A tombstone hides an entry permanently, regardless of arrival order. Two
-independent adds with different IDs both survive. Settings merge independently
+A tombstone hides an entry permanently, regardless of arrival order, including
+edits received after deletion. Each edit is one full `update-entry` operation
+against the original stable entry ID. It consumes one quota slot and cannot be
+split across upload batches or pull pages. Concurrent edits resolve to the full
+edit with the highest accepted server sequence; client clocks are not consulted.
+Pending edits overlay accepted edits until acknowledged. Original adds remain
+immutable so duplicate imports and retries still validate against original content.
+Two independent adds with different IDs both survive. Settings merge independently
 by the highest accepted server sequence; an offline setting can win when it
 reconnects. Pending local settings overlay accepted settings until acknowledged.
-There is no edit operation: delete and add a corrected weigh-in.
+The same last-accepted-write policy applies to edits of a weigh-in; it does not
+merge individual weight, time, feed, and clothing fields from competing edits.
 
 Each cycle pulls, pushes up to ten batches, then pulls again. Applying a page
 and advancing its cursor is one local transaction. Acknowledgements remove only
 the named operations and never advance the pull cursor. Overlapping pages are
 safe and cannot decrease the cursor. Successful acknowledgements also fold in
-accepted setting versions so delayed older pages cannot revert them. Invalid
+accepted setting and edit versions so delayed older pages cannot revert them. Invalid
 responses/conflicts stop that cycle and preserve pending work.
 
 The page retries on local mutation, online/visible events, and while visible

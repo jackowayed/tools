@@ -8,8 +8,9 @@ import { newOperation, canonicalOperation, entryPayload } from '../sync-protocol
 let mf, db;
 const logs = [];
 const add = (entryId = crypto.randomUUID(), kg = 3.5) => newOperation('add-entry', { entryId, timestamp: 1700000000000, kg, afterFeed: false });
+const fields = op => ({ entryId: op.entryId, timestamp: op.timestamp, kg: op.kg, afterFeed: op.afterFeed, ...(op.clothed === undefined ? {} : { clothed: op.clothed }) });
 const key = () => `bw1.${crypto.randomUUID()}.${'a'.repeat(64)}`;
-const page = (records, afterSeq = 0, hasMore = false) => ({ v: 1, records, cursor: records.at(-1)?.seq ?? afterSeq, hasMore });
+const page = (records, afterSeq = 0, hasMore = false) => ({ v: 2, records, cursor: records.at(-1)?.seq ?? afterSeq, hasMore });
 async function log(name = crypto.randomUUID(), legacy = {}) {
   const result = await LocalLog.open({ name, legacy, broadcast: false }); logs.push(result); return result;
 }
@@ -17,7 +18,7 @@ async function api(action, body, credential, ip = crypto.randomUUID()) {
   return mf.dispatchFetch(`http://localhost/api/sync/${action}`, {
     method: 'POST', headers: { 'content-type': 'application/json', 'CF-Connecting-IP': ip,
       ...(credential ? { authorization: `Bearer ${credential}` } : {}) },
-    body: JSON.stringify({ v: 1, ...body }),
+    body: JSON.stringify({ v: 2, ...body }),
   });
 }
 async function create() { const response = await api('create', {}); assert.equal(response.status, 201); return (await response.json()).key; }
@@ -71,7 +72,7 @@ test('API: malformed records, protocol, origins, and throttling', async () => {
   const credential = await create();
   assert.equal((await api('append', { ops: [{ ...add(), kg: -1 }] }, credential)).status, 400);
   assert.equal((await api('append', { ops: [{ ...add(), entryId: '\" onclick=alert(1)' }] }, credential)).status, 400);
-  assert.equal((await api('pull', { v: 2, afterSeq: 0 }, credential)).status, 400);
+  assert.equal((await api('pull', { v: 1, afterSeq: 0 }, credential)).status, 400);
   assert.equal((await mf.dispatchFetch('http://localhost/api/sync/create', { method: 'POST', headers: { origin: 'https://elsewhere.example' } })).status, 403);
   const ip = crypto.randomUUID();
   for (let i = 0; i < 5; i++) assert.equal((await api('create', {}, null, ip)).status, 201);
@@ -112,7 +113,7 @@ test('IndexedDB: acknowledgement preserves new work and does not jump the pull c
   await local.mutate('set-setting', { field: 'birth', value: '2025-01-01' });
   const sent = (await local.read()).pending;
   await local.mutate('set-setting', { field: 'birth', value: '2025-02-01' });
-  await local.acknowledge(credential, sent, { v: 1, assigned: [{ opId: sent[0].opId, seq: 100 }] });
+  await local.acknowledge(credential, sent, { v: 2, assigned: [{ opId: sent[0].opId, seq: 100 }] });
   let state = await local.read(); assert.equal(state.pending.length, 1); assert.equal(state.sync.cursor, 0);
   assert.equal(visibleState(state).settings.birth, '2025-02-01');
   await local.applyPage(credential, 0, page([{ seq: 99, op: newOperation('set-setting', { field: 'birth', value: '2024-01-01' }) }]));
@@ -233,7 +234,7 @@ test('same-field settings converge to server order and duplicate sync loops are 
 });
 
 
-test('IndexedDB: editing atomically replaces an entry and rejects stale edits', async () => {
+test('IndexedDB: editing atomically queues one update and preserves the entry identity', async () => {
   const a = await log();
   await a.mutate('add-entry', { entryId: 'original', timestamp: 1700000000123, kg: 3.123456, afterFeed: false });
   const fields = { timestamp: 1700000000123, kg: 3.123456, afterFeed: true };
@@ -247,12 +248,16 @@ test('IndexedDB: editing atomically replaces an entry and rejects stale edits', 
   const state = await a.read();
   const visible = visibleState(state).entries;
   assert.equal(visible.length, 1);
-  assert.notEqual(visible[0].id, 'original');
+  assert.equal(visible[0].id, 'original');
+  assert.deepEqual(state.entries, before.entries, 'original add payload is immutable');
   assert.equal(visible[0].ts, fields.timestamp);
   assert.equal(visible[0].kg, fields.kg);
   assert.equal(visible[0].afterFeed, true);
-  assert.deepEqual(state.pending.slice(-2).map(op => op.type), ['delete-entry', 'add-entry']);
-  await assert.rejects(a.replaceEntry('original', fields), /removed or edited elsewhere/);
+  assert.deepEqual(state.pending.map(op => op.type), ['add-entry', 'update-entry']);
+  await a.replaceEntry('original', { ...fields, kg: 4 });
+  assert.equal(visibleState(await a.read()).entries[0].kg, 4);
+  await a.mutate('delete-entry', { entryId: 'original' });
+  await assert.rejects(a.replaceEntry('original', fields));
 });
 
 test('reset clears all local state, rejects stale tabs and preserves the server log', async () => {
@@ -284,4 +289,169 @@ test('reset clears all local state, rejects stale tabs and preserves the server 
   await newEngine.run();
   assert.equal(visibleState(await fresh.read()).entries.length, 1);
   assert.equal(visibleState(await fresh.read()).settings.sex, 'female');
+});
+
+test('protocol: historical operations retain canonical bytes while edits require v2', () => {
+  const historical = [
+    { v: 1, opId: 'old-add', type: 'add-entry', entryId: 'old', timestamp: 1700000000000, kg: 3, afterFeed: false },
+    { v: 1, opId: 'old-delete', type: 'delete-entry', entryId: 'old' },
+    { v: 1, opId: 'old-setting', type: 'set-setting', field: 'sex', value: 'female' },
+  ];
+  for (const op of historical) assert.equal(JSON.stringify(canonicalOperation(op)), JSON.stringify(op));
+  assert.equal(add().v, 2);
+  const edit = newOperation('update-entry', { entryId: 'old', timestamp: 1700000000000, kg: 4, afterFeed: true, clothed: true });
+  assert.equal(edit.v, 2);
+  assert.throws(() => canonicalOperation({ ...edit, v: 1 }));
+  for (const kg of [undefined, NaN, -1]) assert.throws(() => canonicalOperation({ ...edit, kg }));
+});
+
+test('API: old envelopes cannot mutate datasets; historical operations upload in v2', async () => {
+  const count = async () => (await db.prepare('SELECT COUNT(*) AS count FROM datasets').first()).count;
+  const before = await count();
+  assert.equal((await api('create', { v: 1 })).status, 400);
+  assert.equal(await count(), before);
+  const credential = await create(), original = { ...add(), v: 1 };
+  assert.equal((await api('append', { v: 1, ops: [original] }, credential)).status, 400);
+  assert.equal((await (await api('pull', { afterSeq: 0 }, credential)).json()).records.length, 0);
+  assert.equal((await api('append', { ops: [original] }, credential)).status, 200);
+  const pulled = await (await api('pull', { afterSeq: 0 }, credential)).json();
+  assert.deepEqual(pulled.records[0].op, original);
+});
+
+test('end to end: concurrent offline edits and a lost response converge to one stable reading', async () => {
+  const credential = await create(), a = await log(), b = await log();
+  await a.link(credential); await b.link(credential);
+  const engineA = new SyncEngine(a, { fetcher }), engineB = new SyncEngine(b, { fetcher });
+  const original = add('shared-reading');
+  await a.mutate(original.type, original); await engineA.cycle(); await engineB.cycle();
+  await a.replaceEntry(original.entryId, { ...fields(original), kg: 4, afterFeed: true });
+  await b.replaceEntry(original.entryId, { ...fields(original), kg: 5, clothed: true });
+  assert.equal((await a.read()).pending.length, 1); assert.equal((await b.read()).pending.length, 1);
+  let lost = false;
+  engineA.fetcher = async (url, options) => {
+    const response = await fetcher(url, options);
+    if (url.endsWith('/append') && !lost) { lost = true; throw new Error('response lost'); }
+    return response;
+  };
+  await assert.rejects(engineA.cycle(), /response lost/);
+  await engineB.cycle(); await engineA.cycle(); await engineB.cycle();
+  const av = visibleState(await a.read()), bv = visibleState(await b.read());
+  assert.deepEqual(av.entries, bv.entries); assert.equal(av.entries.length, 1);
+  assert.equal(av.entries[0].id, original.entryId); assert.equal(av.entries[0].kg, 5);
+  assert.equal(av.entries[0].clothed, true);
+  assert.equal((await a.read()).entries[0].kg, original.kg);
+  const records = (await (await api('pull', { afterSeq: 0 }, credential)).json()).records;
+  assert.deepEqual(records.map(r => r.op.type), ['add-entry', 'update-entry', 'update-entry']);
+});
+
+test('IndexedDB: delayed edit pages and acknowledgements preserve newer and pending edits', async () => {
+  const local = await log(), credential = key(), original = add('delayed');
+  await local.link(credential); await local.applyPage(credential, 0, page([{ seq: 1, op: original }]));
+  const edit = kg => newOperation('update-entry', { ...fields(original), kg });
+  const older = edit(4), newer = edit(5);
+  await local.applyPage(credential, 1, page([{ seq: 20, op: newer }]));
+  await local.applyPage(credential, 1, page([{ seq: 10, op: older }]));
+  assert.equal(visibleState(await local.read()).entries[0].kg, 5);
+  await local.replaceEntry(original.entryId, { ...fields(original), kg: 6 });
+  const sent = (await local.read()).pending;
+  await local.replaceEntry(original.entryId, { ...fields(original), kg: 7 });
+  await local.acknowledge(credential, sent, { v: 2, assigned: [{ opId: sent[0].opId, seq: 15 }] });
+  assert.equal(visibleState(await local.read()).entries[0].kg, 7);
+  assert.equal((await local.read()).edits.find(edit => edit.op.entryId === original.entryId).seq, 20);
+  assert.equal((await local.read()).pending.length, 1);
+});
+
+test('IndexedDB: delete wins over edits in either delivery order and pending overlays', async () => {
+  for (const deleteFirst of [true, false]) {
+    const local = await log(), credential = key(), original = add('deleted');
+    await local.link(credential); await local.applyPage(credential, 0, page([{ seq: 1, op: original }]));
+    await local.replaceEntry(original.entryId, { ...fields(original), kg: 6 });
+    const deletion = newOperation('delete-entry', { entryId: original.entryId });
+    const edit = newOperation('update-entry', { ...fields(original), kg: 7 });
+    const ops = deleteFirst ? [deletion, edit] : [edit, deletion];
+    await local.applyPage(credential, 1, page(ops.map((op, i) => ({ seq: i + 2, op }))));
+    assert.deepEqual(visibleState(await local.read()).entries, []);
+    await assert.rejects(local.replaceEntry(original.entryId, { ...fields(original), kg: 8 }));
+  }
+});
+
+test('D1: an edit fits the final batch and quota slot without a half replacement', async () => {
+  const credential = await create(), original = add('quota-edit');
+  await api('append', { ops: [original] }, credential);
+  const edit = newOperation('update-entry', { ...fields(original), kg: 4 });
+  await db.prepare('UPDATE datasets SET operation_count = 9950 WHERE id = ?').bind(credential.split('.')[1]).run();
+  const batch = [...Array.from({ length: 49 }, () => add()), edit];
+  assert.equal((await api('append', { ops: batch }, credential)).status, 200);
+  assert.equal((await api('append', { ops: [edit] }, credential)).status, 200, 'retry at quota remains idempotent');
+  assert.equal((await api('append', { ops: [newOperation('update-entry', { ...fields(original), kg: 5 })] }, credential)).status, 413);
+  const records = (await (await api('pull', { afterSeq: 0 }, credential)).json()).records;
+  assert.equal(records.length, 51); assert.deepEqual(records.at(-1).op, edit);
+});
+
+test('IndexedDB: upgrading v1 retains pending historical operations and blocks old clients', async () => {
+  const name = crypto.randomUUID(), original = { ...add('legacy-state'), v: 1 }, credential = key();
+  const state = { revision: 5, entries: [{ type: 'weight', id: original.entryId, ts: original.timestamp, kg: original.kg, afterFeed: false, clothed: false }],
+    tombstones: [], pending: [original], settings: { birth: '', sex: '', unit: 'kg' }, versions: { birth: 0, sex: 0 }, sync: { key: credential, cursor: 42 } };
+  const database = await new Promise((resolve, reject) => {
+    const request = indexedDB.open(name, 1);
+    request.onupgradeneeded = () => request.result.createObjectStore('state');
+    request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error);
+  });
+  await new Promise((resolve, reject) => {
+    const transaction = database.transaction('state', 'readwrite');
+    transaction.objectStore('state').put(state, 'current');
+    transaction.oncomplete = resolve; transaction.onabort = () => reject(transaction.error);
+  });
+  database.close();
+  const local = await log(name), upgraded = await local.read();
+  assert.deepEqual(upgraded.entries, state.entries); assert.deepEqual(upgraded.pending, [original]);
+  assert.equal(upgraded.sync.cursor, 42); assert.deepEqual(upgraded.edits, []);
+  await assert.rejects(new Promise((resolve, reject) => {
+    const request = indexedDB.open(name, 1);
+    request.onsuccess = () => { request.result.close(); resolve(); };
+    request.onerror = () => reject(request.error);
+  }), { name: 'VersionError' });
+});
+
+test('SyncEngine: persisted v1 pending operations upload inside v2 envelopes unchanged', async () => {
+  const local = await log(), credential = await create(), old = { ...add('pending-v1'), v: 1 };
+  await local.link(credential);
+  await local.change(state => { state.pending.push(old); return state; });
+  let uploaded;
+  const engine = new SyncEngine(local, { fetcher: (url, options) => {
+    const body = JSON.parse(options.body);
+    assert.equal(body.v, 2);
+    if (url.endsWith('/append')) uploaded = body.ops;
+    return fetcher(url, options);
+  } });
+  await engine.cycle();
+  assert.deepEqual(uploaded, [old]);
+  assert.equal((await local.read()).pending.length, 0);
+  assert.equal(visibleState(await local.read()).entries[0].id, old.entryId);
+});
+
+test('end to end: edit at batch and quota boundary stays whole and failed next edit stays local', async () => {
+  const credential = await create(), a = await log(), b = await log();
+  await a.link(credential); await b.link(credential);
+  const engineA = new SyncEngine(a, { fetcher }), engineB = new SyncEngine(b, { fetcher });
+  const original = add('boundary-reading');
+  await a.mutate(original.type, original); await engineA.cycle(); await engineB.cycle();
+  for (let i = 0; i < 49; i++) await a.mutate('set-setting', { field: 'sex', value: i % 2 ? 'male' : 'female' });
+  await a.replaceEntry(original.entryId, { ...fields(original), kg: 4, clothed: true });
+  assert.equal((await a.read()).pending.length, 50);
+  await db.prepare('UPDATE datasets SET operation_count = 9950 WHERE id = ?').bind(credential.split('.')[1]).run();
+  await engineA.cycle(); await engineB.cycle();
+  const remote = visibleState(await b.read()).entries;
+  assert.equal(remote.length, 1); assert.equal(remote[0].id, original.entryId);
+  assert.equal(remote[0].kg, 4); assert.equal(remote[0].clothed, true);
+  assert.equal((await a.read()).pending.length, 0);
+  await a.replaceEntry(original.entryId, { ...fields(original), kg: 5 });
+  await assert.rejects(engineA.cycle());
+  await engineB.cycle();
+  assert.deepEqual(visibleState(await b.read()).entries, remote);
+  const local = await a.read();
+  assert.equal(local.pending.length, 1); assert.equal(local.pending[0].type, 'update-entry');
+  assert.equal(visibleState(local).entries.length, 1);
+  assert.equal(visibleState(local).entries[0].id, original.entryId);
+  assert.equal(visibleState(local).entries[0].kg, 5);
 });

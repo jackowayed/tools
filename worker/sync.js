@@ -25,7 +25,7 @@ async function readBody(request) {
   let offset = 0;
   for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
   const body = JSON.parse(new TextDecoder().decode(bytes));
-  if (!body || body.v !== VERSION) throw new Error('Unsupported protocol version.');
+  if (!body || body.v !== VERSION) throw new Error('Sync has been updated. Reload this page to continue; local changes were kept.');
   return body;
 }
 
