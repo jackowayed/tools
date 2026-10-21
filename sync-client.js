@@ -2,7 +2,7 @@ import { VERSION, MAX_BATCH, canonicalOperation, entryPayload, newOperation, par
 
 const DEFAULT_SETTINGS = { birth: '', sex: '', unit: 'lb' };
 function initialState(legacy) {
-  const state = { revision: 0, entries: [], tombstones: [], pending: [],
+  const state = { revision: 0, entries: [], edits: [], tombstones: [], pending: [],
     settings: { ...DEFAULT_SETTINGS }, versions: { birth: 0, sex: 0 }, sync: null };
   for (const entry of legacy.entries || []) {
     const entryId = /^[A-Za-z0-9_-]{1,100}$/.test(entry.id || '') ? entry.id : crypto.randomUUID();
@@ -20,13 +20,28 @@ function initialState(legacy) {
   return state;
 }
 
+function entryFromOperation(op) {
+  return { type: 'weight', id: op.entryId, ts: op.timestamp, kg: op.kg,
+    afterFeed: op.afterFeed, clothed: op.clothed === true };
+}
+
 function applyOperation(state, op, seq = 0) {
   if (op.type === 'add-entry') {
     const existing = state.entries.find(e => e.id === op.entryId);
     if (existing) {
       if (entryPayload({ entryId: existing.id, timestamp: existing.ts, kg: existing.kg, afterFeed: existing.afterFeed, clothed: existing.clothed }) !== entryPayload(op))
         throw new Error('Conflicting entry received. Sync stopped; local data was kept.');
-    } else state.entries.push({ type: 'weight', id: op.entryId, ts: op.timestamp, kg: op.kg, afterFeed: op.afterFeed, clothed: op.clothed === true });
+    } else state.entries.push(entryFromOperation(op));
+  } else if (op.type === 'update-entry') {
+    // Keep original adds immutable for retry/conflict checks. Acknowledgements
+    // and pull pages can arrive out of order: only the newest accepted edit wins.
+    const edits = state.edits ??= [];
+    const index = edits.findIndex(edit => edit.op.entryId === op.entryId);
+    if (seq > (index < 0 ? 0 : edits[index].seq)) {
+      const edit = { seq, op };
+      if (index < 0) edits.push(edit);
+      else edits[index] = edit;
+    }
   } else if (op.type === 'delete-entry') {
     if (!state.tombstones.includes(op.entryId)) state.tombstones.push(op.entryId);
   } else if (seq > state.versions[op.field]) {
@@ -38,16 +53,26 @@ function applyOperation(state, op, seq = 0) {
 export function visibleState(state) {
   const deleted = new Set(state.tombstones);
   const settings = { ...state.settings };
-  for (const op of state.pending) if (op.type === 'set-setting') settings[op.field] = op.value;
-  return { ...state, entries: state.entries.filter(e => !deleted.has(e.id)), settings };
+  const edits = new Map((state.edits || []).map(edit => [edit.op.entryId, edit.op]));
+  for (const op of state.pending) {
+    if (op.type === 'set-setting') settings[op.field] = op.value;
+    else if (op.type === 'update-entry') edits.set(op.entryId, op);
+  }
+  const entries = state.entries.filter(e => !deleted.has(e.id))
+    .map(entry => edits.has(entry.id) ? entryFromOperation(edits.get(entry.id)) : entry);
+  return { ...state, entries, settings };
 }
 
 export class LocalLog {
   constructor(db, channel) { this.db = db; this.channel = channel; this.listeners = new Set(); }
   static async open({ name = 'baby-weight-v1', legacy = {}, broadcast = true } = {}) {
     const db = await new Promise((resolve, reject) => {
-      const request = indexedDB.open(name, 1);
-      request.onupgradeneeded = () => request.result.createObjectStore('state');
+      // Old tabs close through onversionchange; v1 clients cannot reopen and
+      // silently render or mutate state without understanding accepted edits.
+      const request = indexedDB.open(name, 2);
+      request.onupgradeneeded = event => {
+        if (event.oldVersion === 0) request.result.createObjectStore('state');
+      };
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
       request.onblocked = () => reject(new Error('Close other baby-weight tabs and try again.'));
@@ -58,7 +83,11 @@ export class LocalLog {
     if (channel) channel.onmessage = () => log.notify(false);
     // Migration and its marker are committed together; other tabs see the winner.
     try {
-      const state = await log.change(state => state || initialState(typeof legacy === 'function' ? legacy() : legacy));
+      const state = await log.change(state => {
+        state ||= initialState(typeof legacy === 'function' ? legacy() : legacy);
+        state.edits ??= [];
+        return state;
+      });
       log.resetId = state.resetId ?? null;
       return log;
     } catch (error) { log.close(); throw error; }
@@ -107,16 +136,12 @@ export class LocalLog {
     });
   }
   replaceEntry(entryId, fields) {
-    // Use the existing sync protocol: queue both changes in one durable transaction.
-    const removed = newOperation('delete-entry', { entryId });
-    const replacement = newOperation('add-entry', { ...fields, entryId: crypto.randomUUID() });
+    // One operation is atomic even at upload/page boundaries and the quota limit.
+    const replacement = newOperation('update-entry', { ...fields, entryId });
     return this.change(state => {
       if (!state.entries.some(e => e.id === entryId) || state.tombstones.includes(entryId))
-        throw new Error('This weigh-in was removed or edited elsewhere. Cancel and reopen the entry.');
-      for (const op of [removed, replacement]) {
-        applyOperation(state, op);
-        state.pending.push(op);
-      }
+        throw new Error('This weigh-in was removed elsewhere. Cancel and reopen the entry.');
+      state.pending.push(replacement);
       return state;
     });
   }

@@ -225,7 +225,7 @@ test('Chromium: migration, multi-tab adds, two-device sync, offline deletion, re
   const status = await b.evaluate(async () => {
     const response = await fetch('/api/sync/append', {
       method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${document.querySelector('#syncKey').value}` },
-      body: JSON.stringify({ v: 1, ops: ['__proto__', 'constructor'].map(entryId => ({
+      body: JSON.stringify({ v: 2, ops: ['__proto__', 'constructor'].map(entryId => ({
         v: 1, opId: crypto.randomUUID(), type: 'add-entry', entryId, timestamp: 1600000000000, kg: 3, afterFeed: true,
       })) }),
     });
@@ -252,6 +252,7 @@ test('Chromium: past entries can be corrected, cancelled, reloaded and synced', 
   assert.equal(await a.locator('#table .cell-time').textContent(), '1:05 PM');
   assert.equal(await a.locator('#feedStateLabel').innerText(), 'Before feed');
   assert.ok(await a.evaluate(() => !!(document.querySelector('.feed').compareDocumentPosition(document.querySelector('#babySettings')) & Node.DOCUMENT_POSITION_FOLLOWING)));
+  const originalId = await a.locator('#table .edit').getAttribute('data-id');
   const beforeColor = await a.locator('#table .cell-value').evaluate(el => getComputedStyle(el).backgroundColor);
   await a.locator('#syncCreate').click(); await synced(a);
   await b.locator('#syncKey').fill(await a.locator('#syncKey').inputValue());
@@ -265,10 +266,12 @@ test('Chromium: past entries can be corrected, cancelled, reloaded and synced', 
   await a.locator('#addReading').click();
   await a.waitForFunction(() => document.querySelector('#cancelEdit').hidden);
   await rows(a, 1);
+  assert.equal(await a.locator('#table .edit').getAttribute('data-id'), originalId);
   assert.equal(await a.locator('#table .cell-feed').textContent(), 'After');
   assert.notEqual(await a.locator('#table .cell-value').evaluate(el => getComputedStyle(el).backgroundColor), beforeColor);
   await first.setOffline(false);
   await a.reload(); await rows(a, 1);
+  assert.equal(await a.locator('#table .edit').getAttribute('data-id'), originalId);
   assert.equal(await a.locator('#table .cell-feed').textContent(), 'After');
   await a.locator('#tabList').click();
   await a.locator('#feed .edit').click();
@@ -293,6 +296,7 @@ test('Chromium: past entries can be corrected, cancelled, reloaded and synced', 
   await b.locator('#syncRetry').click(); await synced(b); await rows(b, 1);
   await b.waitForFunction(() => document.querySelector('#table .cell-value').textContent === '7 lb 0.9 oz');
   assert.equal(await b.locator('#table .cell-value').textContent(), '7 lb 0.9 oz');
+  assert.equal(await b.locator('#table .edit').getAttribute('data-id'), originalId);
   assert.equal(await b.locator('#table .cell-feed').textContent(), 'After');
   assert.equal(await b.locator('#table .cell-time').textContent(), '12:05 AM');
   await first.close(); await second.close();
