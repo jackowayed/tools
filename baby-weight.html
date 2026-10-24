@@ -584,6 +584,12 @@
   #resetDialog p { margin: 1rem 0; line-height: 1.5; }
   #resetConfirmation { display: block; width: 100%; margin: .5rem 0 1rem; padding: .6rem; }
   .reset-actions { display: flex; gap: .75rem; flex-wrap: wrap; }
+  .growth-chart { margin: 24px 0 0; }
+  .growth-chart h3 { font-size: 1rem; margin: 0 0 6px; }
+  .growth-chart svg { display: block; width: 100%; height: auto; min-width: 440px; }
+  .growth-chart .chart-scroll { overflow-x: auto; }
+  .growth-chart text { font: 12px system-ui, sans-serif; fill: #596965; }
+  .growth-chart .chart-key { font-size: .8rem; color: #596965; margin: 6px 0; }
 </style>
 </head>
 <body>
@@ -677,6 +683,12 @@
   <div id="feed" style="display:none"></div>
   <div id="table"></div>
 </div>
+
+<details class="card settings-card" id="weightGraphs">
+  <summary>Weight graphs</summary>
+  <p class="settings-note">All naked weights, before and after feeds. Dots show individual readings; the teal line shows a trailing 7-day average of daily means (each measured day counts equally). Gaps without readings are not filled in. History filters do not affect these graphs.</p>
+  <div id="weightGraphsContent"></div>
+</details>
 
 <details class="card settings-card" id="todayPercentiles">
   <summary>Today’s Percentiles</summary>
@@ -1125,11 +1137,96 @@ function ageCellContent(entry) {
 function render() {
   renderSettingsUI();
   renderTodayPercentiles();
+  renderWeightGraphs();
   renderList();
   renderTable();
   feedEl.style.display = currentView === 'list' ? '' : 'none';
   tableEl.style.display = currentView === 'table' ? '' : 'none';
 }
+
+// Graphs deliberately use the full naked-weight history, independent of list filters.
+function graphDailyTrend(points) {
+  const days = new Map();
+  for (const point of points) {
+    const d = new Date(point.ts);
+    const day = Date.UTC(d.getFullYear(), d.getMonth(), d.getDate());
+    if (!days.has(day)) days.set(day, []);
+    days.get(day).push(point);
+  }
+  const daily = [...days].sort((a, b) => a[0] - b[0]).map(([day, values]) => ({
+    day, ts: values.reduce((sum, p) => sum + p.ts, 0) / values.length,
+    value: values.reduce((sum, p) => sum + p.value, 0) / values.length,
+  }));
+  return daily.map((point, i) => {
+    const window = daily.slice(0, i + 1).filter(p => p.day > point.day - 7 * 86400000);
+    return { ts: point.ts, value: window.reduce((sum, p) => sum + p.value, 0) / window.length };
+  });
+}
+
+function weightGraph(title, unit, points, references = [], fixedRange = null) {
+  const trend = graphDailyTrend(points);
+  const all = [...points, ...trend, ...references.flatMap(r => r.points)];
+  let xMin = Math.min(...all.map(p => p.ts)), xMax = Math.max(...all.map(p => p.ts));
+  if (xMin === xMax) { xMin -= 43200000; xMax += 43200000; }
+  let yMin = fixedRange ? fixedRange[0] : Math.min(...all.map(p => p.value));
+  let yMax = fixedRange ? fixedRange[1] : Math.max(...all.map(p => p.value));
+  if (!fixedRange) { const pad = Math.max((yMax - yMin) * .12, .05); yMin -= pad; yMax += pad; }
+  const x = ts => 58 + (ts - xMin) / (xMax - xMin) * 500;
+  const y = value => 230 - (value - yMin) / (yMax - yMin) * 198;
+  const date = ts => new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: '2-digit' });
+  const path = (values, breakGaps = false) => values.map((p, i) =>
+    `${!i || (breakGaps && p.ts - values[i - 1].ts > 7 * 86400000) ? 'M' : 'L'}${x(p.ts).toFixed(2)},${y(p.value).toFixed(2)}`).join(' ');
+  let svg = `<svg viewBox="0 0 620 280" role="img" aria-label="${escHtml(title)}"><title>${escHtml(title)} (${escHtml(unit)})</title>`;
+  for (let i = 0; i <= 4; i++) {
+    const v = yMin + (yMax - yMin) * i / 4;
+    svg += `<path d="M58,${y(v)}H558" stroke="#e0e8e5"/><text x="50" y="${y(v) + 4}" text-anchor="end">${v.toFixed(unit === '%ile' ? 0 : 2)}</text>`;
+  }
+  svg += `<text x="58" y="18">${escHtml(unit)}</text>`;
+  for (let i = 0; i <= 2; i++) {
+    const ts = xMin + (xMax - xMin) * i / 2;
+    svg += `<text x="${x(ts)}" y="254" text-anchor="${i === 0 ? 'start' : i === 2 ? 'end' : 'middle'}">${escHtml(date(ts))}</text>`;
+  }
+  for (const ref of references) {
+    const last = ref.points.at(-1);
+    svg += `<path d="${path(ref.points)}" fill="none" stroke="#9aa9a3" stroke-dasharray="${ref.label === '50th' ? 'none' : '4 4'}"/><text x="565" y="${y(last.value) + 4}">${ref.label}</text>`;
+  }
+  for (const p of points) svg += `<circle cx="${x(p.ts)}" cy="${y(p.value)}" r="3" fill="#718d86" opacity=".6"><title>${escHtml(new Date(p.ts).toLocaleString())}: ${p.value.toFixed(2)} ${escHtml(unit)}</title></circle>`;
+  svg += `<path d="${path(trend, true)}" fill="none" stroke="#16796c" stroke-width="3" stroke-linejoin="round"/>`;
+  for (const p of trend) svg += `<circle cx="${x(p.ts)}" cy="${y(p.value)}" r="3" fill="#16796c"><title>7-day average: ${p.value.toFixed(2)} ${escHtml(unit)}</title></circle>`;
+  return `<section class="growth-chart"><h3>${escHtml(title)}</h3><div class="chart-scroll">${svg}</svg></div><p class="chart-key">● Individual readings · Teal: 7-day average${references.length ? ' · Gray: WHO percentiles' : ''}</p></section>`;
+}
+
+function renderWeightGraphs() {
+  if (!document.getElementById('weightGraphs').open) return;
+  const target = document.getElementById('weightGraphsContent');
+  const naked = entries.filter(e => !e.clothed && Number.isFinite(e.ts) && Number.isFinite(e.kg) && e.kg > 0).sort((a, b) => a.ts - b.ts);
+  if (!naked.length) { target.innerHTML = '<p class="settings-note">Add a naked weigh-in to see growth graphs.</p>'; return; }
+  const factor = settings.unit === 'kg' ? 1 : 1 / KG_PER_LB;
+  const unit = settings.unit === 'kg' ? 'kg' : 'lb';
+  let html = weightGraph('Weight over time', unit, naked.map(e => ({ ts: e.ts, value: e.kg * factor })));
+  const valid = naked.map(e => ({ ...e, result: percentileFor(e) })).filter(e => !e.result.error);
+  if (!valid.length) {
+    target.innerHTML = html + '<p class="settings-note">Percentile graphs need birth date and sex in Settings, and naked readings within the WHO age range (0–1856 days).</p>';
+    return;
+  }
+  const start = valid[0].ts, end = valid.at(-1).ts;
+  const references = [5, 25, 50, 75, 95].map(percentile => {
+    const z = percentileToZ(percentile);
+    const steps = Math.max(1, Math.min(300, Math.ceil((end - start) / 86400000)));
+    const points = Array.from({ length: steps + 1 }, (_, i) => {
+      const ts = start + (end - start) * i / steps;
+      const { l, m, s } = lookupLms(settings.sex === 'male' ? WFA_BOYS : WFA_GIRLS, (ts - birthTs()) / 86400000);
+      const kg = Math.abs(l) < 1e-9 ? m * Math.exp(s * z) : m * Math.pow(1 + l * s * z, 1 / l);
+      return { ts, value: kg * factor };
+    });
+    return { label: `${percentile}th`, points };
+  });
+  html += weightGraph('Weight alongside WHO growth curves', unit, valid.map(e => ({ ts: e.ts, value: e.kg * factor })), references);
+  html += weightGraph('Weight-for-age percentile over time', '%ile', valid.map(e => ({ ts: e.ts, value: e.result.percentile })), [], [0, 100]);
+  html += `<p class="settings-note">WHO ${settings.sex === 'male' ? 'boys' : 'girls'} weight-for-age. Percentile dots use each reading’s age; the line averages those percentiles.${valid.length < naked.length ? ' Readings outside the WHO age range are omitted from the percentile graphs.' : ''}</p>`;
+  target.innerHTML = html;
+}
+document.getElementById('weightGraphs').addEventListener('toggle', renderWeightGraphs);
 
 function matchesHistoryFilters(entry) {
   return (historyClothingEl.value === 'all'

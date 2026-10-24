@@ -517,3 +517,42 @@ test('Chromium: table defaults to latest 12 matching weights and can show all', 
     assert.equal(await page.locator('#toggleAllWeights').getAttribute('aria-expanded'), 'false');
   } finally { await context.close(); }
 });
+
+test('Chromium: collapsed weight graphs use all naked readings and respond to settings', async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  await context.addInitScript(() => {
+    localStorage.setItem('babyWeightSettings', JSON.stringify({ birth: '2026-01-01', sex: 'female', unit: 'kg' }));
+    localStorage.setItem('babyWeightLog', JSON.stringify([
+      { id: 'before', type: 'weight', ts: new Date(2026, 0, 2).getTime(), kg: 3, clothed: false, afterFeed: false },
+      { id: 'after', type: 'weight', ts: new Date(2026, 0, 3).getTime(), kg: 3.1, clothed: false, afterFeed: true },
+      { id: 'clothed', type: 'weight', ts: new Date(2026, 0, 4).getTime(), kg: 9, clothed: true, afterFeed: false },
+    ]));
+  });
+  const page = await open(context);
+  assert.equal(await page.locator('#weightGraphs').getAttribute('open'), null);
+  await page.locator('#weightGraphs summary').click();
+  await page.locator('#weightGraphs svg').first().waitFor();
+  assert.equal(await page.locator('#weightGraphs svg').count(), 3);
+  assert.equal(await page.locator('#weightGraphs svg').first().locator('circle[opacity]').count(), 2);
+  assert.equal(await page.locator('#weightGraphs svg').nth(1).locator('path[stroke-dasharray]').count(), 5);
+  await page.locator('#historyClothing').selectOption('clothed');
+  assert.equal(await page.locator('#weightGraphs svg').first().locator('circle[opacity]').count(), 2);
+  const weightCharts = page.locator('#weightGraphs svg');
+  assert.match(await weightCharts.nth(0).locator('circle[opacity] title').first().textContent(), /3\.00 kg/);
+  assert.match(await weightCharts.nth(1).locator('circle[opacity] title').first().textContent(), /3\.00 kg/);
+  const ticks = await weightCharts.first().locator('text[text-anchor="end"]').allTextContents();
+  assert.ok(Number(ticks[0]) > 2, 'weight axis fits the readings instead of starting at zero');
+  await page.locator('#unitLb').click();
+  await page.waitForFunction(() => document.querySelector('#weightGraphs svg title').textContent.includes('(lb)'));
+  for (const index of [0, 1]) {
+    assert.match(await weightCharts.nth(index).locator('circle[opacity] title').first().textContent(), /6\.61 lb/);
+  }
+  await page.locator('#unitKg').click();
+  await page.waitForFunction(() => document.querySelector('#weightGraphs svg title').textContent.includes('(kg)'));
+  for (const index of [0, 1]) {
+    assert.match(await weightCharts.nth(index).locator('circle[opacity] title').first().textContent(), /3\.00 kg/);
+  }
+  assert.equal(await page.locator('#weightGraphs').evaluate(el => el.innerHTML.includes('NaN')), false);
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  await context.close();
+});
