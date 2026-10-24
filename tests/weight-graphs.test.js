@@ -19,3 +19,18 @@ test('empty and singleton trends remain usable', () => {
   assert.equal(context.graphDailyTrend([]).length, 0);
   assert.equal(context.graphDailyTrend([{ ts: 0, value: 3 }])[0].value, 3);
 });
+
+test('weight axes use round steps while enclosing the padded data range', () => {
+  for (const [min, max, expected] of [
+    [2.94, 3.16, [2.9, 3, 3.1, 3.2]],
+    [6.37, 10.83, [6, 8, 10, 12]],
+    [3.95, 4.05, [3.95, 4, 4.05]],
+  ]) {
+    const axis = context.graphYAxis(min, max);
+    assert.deepEqual(Array.from(axis.ticks), expected);
+    assert.ok(axis.min <= min && axis.max >= max);
+  }
+});
+test('percentile axes retain the fixed 0–100 range', () => {
+  assert.deepEqual(Array.from(context.graphYAxis(0, 100, true).ticks), [0, 25, 50, 75, 100]);
+});

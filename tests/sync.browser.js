@@ -533,6 +533,21 @@ test('Chromium: collapsed weight graphs use all naked readings and respond to se
   await page.locator('#weightGraphs summary').click();
   await page.locator('#weightGraphs svg').first().waitFor();
   assert.equal(await page.locator('#weightGraphs svg').count(), 3);
+  const assertNewestVisible = async () => {
+    const charts = await page.locator('#weightGraphs .chart-scroll').evaluateAll(elements =>
+      elements.map(el => ({ left: el.scrollLeft, max: el.scrollWidth - el.clientWidth })));
+    assert.ok(charts.length > 0);
+    for (const chart of charts) {
+      assert.ok(chart.max > 0, 'mobile chart overflows horizontally');
+      assert.ok(Math.abs(chart.left - chart.max) <= 1, 'newest readings are visible');
+    }
+  };
+  await assertNewestVisible();
+  await page.locator('#weightGraphs .chart-scroll').first().evaluate(el => { el.scrollLeft = 0; });
+  await page.locator('#weightGraphs summary').click();
+  await page.locator('#weightGraphs summary').click();
+  await page.waitForFunction(() => document.querySelector('#weightGraphs .chart-scroll').scrollLeft > 0);
+  await assertNewestVisible();
   assert.equal(await page.locator('#weightGraphs svg').first().locator('circle[opacity]').count(), 2);
   assert.equal(await page.locator('#weightGraphs svg').nth(1).locator('path[stroke-dasharray]').count(), 5);
   await page.locator('#historyClothing').selectOption('clothed');
@@ -552,6 +567,12 @@ test('Chromium: collapsed weight graphs use all naked readings and respond to se
   for (const index of [0, 1]) {
     assert.match(await weightCharts.nth(index).locator('circle[opacity] title').first().textContent(), /3\.00 kg/);
   }
+  await assertNewestVisible();
+  await page.locator('#babySettings summary').click();
+  await page.locator('#birthDate').fill('');
+  await page.locator('#birthDate').dispatchEvent('change');
+  await page.waitForFunction(() => document.querySelectorAll('#weightGraphs svg').length === 1);
+  await assertNewestVisible();
   assert.equal(await page.locator('#weightGraphs').evaluate(el => el.innerHTML.includes('NaN')), false);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   await context.close();

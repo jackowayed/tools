@@ -1163,6 +1163,18 @@ function graphDailyTrend(points) {
   });
 }
 
+function graphYAxis(min, max, fixedRange = false) {
+  const rawStep = (max - min) / 4;
+  const magnitude = 10 ** Math.floor(Math.log10(rawStep));
+  const step = fixedRange ? rawStep : [1, 2, 5, 10].find(n => n * magnitude >= rawStep) * magnitude;
+  const first = fixedRange ? min : Math.floor(min / step) * step;
+  const last = fixedRange ? max : Math.ceil(max / step) * step;
+  // Remove floating-point noise and unnecessary trailing decimal places.
+  const ticks = Array.from({ length: Math.round((last - first) / step) + 1 },
+    (_, i) => Number((first + i * step).toPrecision(12)));
+  return { min: ticks[0], max: ticks.at(-1), ticks };
+}
+
 function weightGraph(title, unit, points, references = [], fixedRange = null) {
   const trend = graphDailyTrend(points);
   const all = [...points, ...trend, ...references.flatMap(r => r.points)];
@@ -1171,15 +1183,16 @@ function weightGraph(title, unit, points, references = [], fixedRange = null) {
   let yMin = fixedRange ? fixedRange[0] : Math.min(...all.map(p => p.value));
   let yMax = fixedRange ? fixedRange[1] : Math.max(...all.map(p => p.value));
   if (!fixedRange) { const pad = Math.max((yMax - yMin) * .12, .05); yMin -= pad; yMax += pad; }
+  const axis = graphYAxis(yMin, yMax, !!fixedRange);
+  yMin = axis.min; yMax = axis.max;
   const x = ts => 58 + (ts - xMin) / (xMax - xMin) * 500;
   const y = value => 230 - (value - yMin) / (yMax - yMin) * 198;
   const date = ts => new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: '2-digit' });
   const path = (values, breakGaps = false) => values.map((p, i) =>
     `${!i || (breakGaps && p.ts - values[i - 1].ts > 7 * 86400000) ? 'M' : 'L'}${x(p.ts).toFixed(2)},${y(p.value).toFixed(2)}`).join(' ');
   let svg = `<svg viewBox="0 0 620 280" role="img" aria-label="${escHtml(title)}"><title>${escHtml(title)} (${escHtml(unit)})</title>`;
-  for (let i = 0; i <= 4; i++) {
-    const v = yMin + (yMax - yMin) * i / 4;
-    svg += `<path d="M58,${y(v)}H558" stroke="#e0e8e5"/><text x="50" y="${y(v) + 4}" text-anchor="end">${v.toFixed(unit === '%ile' ? 0 : 2)}</text>`;
+  for (const v of axis.ticks) {
+    svg += `<path d="M58,${y(v)}H558" stroke="#e0e8e5"/><text x="50" y="${y(v) + 4}" text-anchor="end">${v}</text>`;
   }
   svg += `<text x="58" y="18">${escHtml(unit)}</text>`;
   for (let i = 0; i <= 2; i++) {
@@ -1199,6 +1212,13 @@ function weightGraph(title, unit, points, references = [], fixedRange = null) {
 function renderWeightGraphs() {
   if (!document.getElementById('weightGraphs').open) return;
   const target = document.getElementById('weightGraphsContent');
+  const showGraphs = html => {
+    target.innerHTML = html;
+    // Keep time increasing left to right, but start with the latest readings visible.
+    for (const chart of target.querySelectorAll('.chart-scroll')) {
+      chart.scrollLeft = chart.scrollWidth;
+    }
+  };
   const naked = entries.filter(e => !e.clothed && Number.isFinite(e.ts) && Number.isFinite(e.kg) && e.kg > 0).sort((a, b) => a.ts - b.ts);
   if (!naked.length) { target.innerHTML = '<p class="settings-note">Add a naked weigh-in to see growth graphs.</p>'; return; }
   const factor = settings.unit === 'kg' ? 1 : 1 / KG_PER_LB;
@@ -1206,7 +1226,7 @@ function renderWeightGraphs() {
   let html = weightGraph('Weight over time', unit, naked.map(e => ({ ts: e.ts, value: e.kg * factor })));
   const valid = naked.map(e => ({ ...e, result: percentileFor(e) })).filter(e => !e.result.error);
   if (!valid.length) {
-    target.innerHTML = html + '<p class="settings-note">Percentile graphs need birth date and sex in Settings, and naked readings within the WHO age range (0–1856 days).</p>';
+    showGraphs(html + '<p class="settings-note">Percentile graphs need birth date and sex in Settings, and naked readings within the WHO age range (0–1856 days).</p>');
     return;
   }
   const start = valid[0].ts, end = valid.at(-1).ts;
@@ -1224,7 +1244,7 @@ function renderWeightGraphs() {
   html += weightGraph('Weight alongside WHO growth curves', unit, valid.map(e => ({ ts: e.ts, value: e.kg * factor })), references);
   html += weightGraph('Weight-for-age percentile over time', '%ile', valid.map(e => ({ ts: e.ts, value: e.result.percentile })), [], [0, 100]);
   html += `<p class="settings-note">WHO ${settings.sex === 'male' ? 'boys' : 'girls'} weight-for-age. Percentile dots use each reading’s age; the line averages those percentiles.${valid.length < naked.length ? ' Readings outside the WHO age range are omitted from the percentile graphs.' : ''}</p>`;
-  target.innerHTML = html;
+  showGraphs(html);
 }
 document.getElementById('weightGraphs').addEventListener('toggle', renderWeightGraphs);
 
