@@ -543,6 +543,24 @@ test('Chromium: collapsed weight graphs use all naked readings and respond to se
     }
   };
   await assertNewestVisible();
+  const assertAxisLabels = async () => {
+    for (const chart of await page.locator('#weightGraphs svg').all()) {
+      assert.deepEqual(await chart.locator('.y-axis-left').allTextContents(),
+        await chart.locator('.y-axis-right').allTextContents());
+      const layout = await chart.evaluate(svg => {
+        const scroll = svg.parentElement.getBoundingClientRect();
+        const right = [...svg.querySelectorAll('.y-axis-right')].map(el => el.getBoundingClientRect());
+        const curves = [...svg.querySelectorAll('.curve-label')].map(el => el.getBoundingClientRect());
+        return {
+          visible: right.length > 0 && right.every(r => r.left >= scroll.left && r.right <= scroll.right),
+          separate: curves.every(c => right.every(r => c.right < r.left)),
+        };
+      });
+      assert.ok(layout.visible, 'right axis labels are visible at the newest readings');
+      assert.ok(layout.separate, 'curve labels have a separate column from axis labels');
+    }
+  };
+  await assertAxisLabels();
   await page.locator('#weightGraphs .chart-scroll').first().evaluate(el => { el.scrollLeft = 0; });
   await page.locator('#weightGraphs summary').click();
   await page.locator('#weightGraphs summary').click();
@@ -562,6 +580,7 @@ test('Chromium: collapsed weight graphs use all naked readings and respond to se
   for (const index of [0, 1]) {
     assert.match(await weightCharts.nth(index).locator('circle[opacity] title').first().textContent(), /6\.61 lb/);
   }
+  await assertAxisLabels();
   await page.locator('#unitKg').click();
   await page.waitForFunction(() => document.querySelector('#weightGraphs svg title').textContent.includes('(kg)'));
   for (const index of [0, 1]) {
