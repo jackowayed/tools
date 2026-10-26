@@ -675,6 +675,14 @@
         <option value="after">After feed</option>
       </select>
     </div>
+    <div>
+      <label for="historyTime">Time of day</label>
+      <select id="historyTime" title="Browser timezone: night is 5pm–4am; day is 4am–5pm">
+        <option value="all">All</option>
+        <option value="day">Day (4am–5pm)</option>
+        <option value="night">Night (5pm–4am)</option>
+      </select>
+    </div>
   </div>
   <div class="tabs">
     <button class="tab active" data-view="table" id="tabTable">Table</button>
@@ -783,6 +791,7 @@ const feedEl = document.getElementById('feed');
 const tableEl = document.getElementById('table');
 const historyClothingEl = document.getElementById('historyClothing');
 const historyFeedEl = document.getElementById('historyFeed');
+const historyTimeEl = document.getElementById('historyTime');
 const birthEl = document.getElementById('birthDate');
 const sexGirlBtn = document.getElementById('sexGirl');
 const sexBoyBtn = document.getElementById('sexBoy');
@@ -1250,10 +1259,15 @@ function renderWeightGraphs() {
 document.getElementById('weightGraphs').addEventListener('toggle', renderWeightGraphs);
 
 function matchesHistoryFilters(entry) {
+  // getHours uses the browser's local timezone, including daylight saving time.
+  const hour = new Date(entry.ts).getHours();
+  const isNight = hour >= 17 || hour < 4;
   return (historyClothingEl.value === 'all'
       || (entry.clothed === true) === (historyClothingEl.value === 'clothed'))
     && (historyFeedEl.value === 'all'
-      || (entry.afterFeed === true) === (historyFeedEl.value === 'after'));
+      || (entry.afterFeed === true) === (historyFeedEl.value === 'after'))
+    && (historyTimeEl.value === 'all'
+      || isNight === (historyTimeEl.value === 'night'));
 }
 
 function historyEmptyMessage() {
@@ -1493,7 +1507,7 @@ sexBoyBtn.addEventListener('click', () => {
   void persist(() => localLog.mutate('set-setting', { field: 'sex', value: settings.sex === 'male' ? '' : 'male' }));
 });
 
-for (const filter of [historyClothingEl, historyFeedEl]) {
+for (const filter of [historyClothingEl, historyFeedEl, historyTimeEl]) {
   filter.addEventListener('change', render);
 }
 
