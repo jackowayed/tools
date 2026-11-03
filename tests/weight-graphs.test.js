@@ -31,6 +31,14 @@ test('weight axes use round steps while enclosing the padded data range', () => 
     assert.ok(axis.min <= min && axis.max >= max);
   }
 });
-test('percentile axes retain the fixed 0–100 range', () => {
-  assert.deepEqual(Array.from(context.graphYAxis(0, 100, true).ticks), [0, 25, 50, 75, 100]);
+test('percentile chart zooms to its data with round axis labels', () => {
+  vm.runInContext(html.slice(html.indexOf('function weightGraph('), html.indexOf('function renderWeightGraphs(')), context);
+  context.escHtml = value => value;
+  const chart = context.weightGraph('Percentile', '%ile', [
+    { ts: 0, value: 42 }, { ts: 86400000, value: 48 },
+  ]);
+  const labels = [...chart.matchAll(/class="y-axis-label y-axis-left"[^>]*>([^<]+)</g)].map(match => Number(match[1]));
+  assert.deepEqual(labels, [40, 42, 44, 46, 48, 50]);
+  const renderSource = html.slice(html.indexOf('function renderWeightGraphs('), html.indexOf('function renderList('));
+  assert.doesNotMatch(renderSource, /\[0, 100\]/);
 });
