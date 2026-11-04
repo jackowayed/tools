@@ -48,8 +48,9 @@ measures time since the latest saved feed started; `*` marks its last breast use
 
 Feeds and the current timer are stored in a separate IndexedDB database on this
 device. Open **Sync between devices**, create sync on one device, and copy its
-`nf1` key into the other device’s Connect field. All timer actions and saved-feed
-edits sync automatically; visible devices check every five seconds. Nursing keys
+four-word passphrase into the other device’s Connect field. Existing `nf1` keys
+remain valid. All timer actions and saved-feed
+edits sync automatically; visible devices check every five seconds. Nursing credentials
 are separate from baby-weight keys. Offline changes queue for reconnection.
 See [SYNC.md](SYNC.md#breastfeeding-sync) for deployment and conflict behavior. Active timers recover elapsed time after closing or
 reloading the page. Editing the current feed pauses it; resume either side after

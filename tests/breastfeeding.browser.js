@@ -92,14 +92,14 @@ test('mobile nursing workflow persists, edits, and coordinates tabs', async () =
     await page.click('#syncCreate');
     await page.waitForFunction(() => document.getElementById('syncStatus').textContent.startsWith('Up to date'));
     const key = await page.inputValue('#syncKey');
-    assert.match(key, /^nf1\./);
+    assert.equal(key.split(' ').length, 4);
     const secondContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
     const second = await secondContext.newPage();
     second.on('pageerror', error => errors.push(error.message));
     await second.clock.install({ time: await page.evaluate(() => Date.now()) });
     await second.goto(url);
     await second.click('#syncSettings summary');
-    await second.fill('#syncKey', key);
+    await second.fill('#syncKey', '  ' + key.toUpperCase().replaceAll(' ', '   ') + '  ');
     await second.click('#syncConnect');
     await second.waitForFunction(() => document.querySelectorAll('.feed').length === 2);
     await page.click('#left');

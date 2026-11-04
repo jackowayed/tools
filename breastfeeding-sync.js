@@ -132,6 +132,6 @@ export class NursingLog extends LocalLog {
 }
 export class NursingSync extends SyncEngine {
   constructor(log, options = {}) {
-    super(log, { ...options, basePath: '/api/nursing-sync', parseCredential: parseKey, lockName: 'nursing-sync' });
+    super(log, { ...options, basePath: '/api/nursing-sync', parseCredential: parseKey, lockName: 'nursing-sync', createOptions: { credentialFormat: 'passphrase' } });
   }
 }

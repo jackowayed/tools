@@ -138,7 +138,7 @@ test('nursing API isolates weight keys, validates snapshots and authenticates wr
   const log = await open(), sync = engine(log); const key = await sync.create();
   const call = (path, key, body) => fetcher(path, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` }, body: JSON.stringify({ v: 2, ...body }) });
   assert.equal((await call('/api/sync/pull', key, { afterSeq: 0 })).status, 401);
-  assert.equal((await call('/api/nursing-sync/pull', key.replace('nf1', 'bw1'), { afterSeq: 0 })).status, 401);
+  assert.equal((await call('/api/nursing-sync/pull', 'wrong words cannot connect', { afterSeq: 0 })).status, 401);
   const op = newOperation('nursing-state', crypto.randomUUID(), switchSide(emptyFeed(), 'left', 1000));
   assert.equal((await call('/api/nursing-sync/append', key, { ops: [{ ...op, feed: { ...op.feed, left: -1 } }] })).status, 400);
   assert.equal((await call('/api/nursing-sync/append', key, { ops: [op] })).status, 200);

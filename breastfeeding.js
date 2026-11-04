@@ -187,12 +187,12 @@ $('syncConnect').addEventListener('click', () => syncAction(async () => { await 
 $('syncDisconnect').addEventListener('click', () => syncAction(() => db.disconnect()));
 $('syncNow').addEventListener('click', () => syncEngine.run({ force: true }));
 $('syncCopy').addEventListener('click', async () => {
-  try { await navigator.clipboard.writeText($('syncKey').value); $('notice').textContent = 'Nursing sync key copied.'; }
-  catch { $('syncKey').type = 'text'; $('syncKey').select(); $('notice').textContent = 'Select and copy the sync key.'; }
+  try { await navigator.clipboard.writeText($('syncKey').value); $('notice').textContent = 'Sync credentials copied.'; }
+  catch { $('syncKey').type = 'text'; $('syncKey').select(); $('notice').textContent = 'Select and copy the sync passphrase or key.'; }
 });
 $('syncShow').addEventListener('click', () => {
   $('syncKey').type = $('syncKey').type === 'password' ? 'text' : 'password';
-  $('syncShow').textContent = $('syncKey').type === 'password' ? 'Show key' : 'Hide key';
+  $('syncShow').textContent = $('syncKey').type === 'password' ? 'Show' : 'Hide';
 });
 try {
   db = await NursingLog.open();

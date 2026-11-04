@@ -213,9 +213,10 @@ export class LocalLog {
 
 export class SyncEngine {
   constructor(log, { fetcher = globalThis.fetch.bind(globalThis), onStatus = () => {},
-    basePath = '/api/sync', parseCredential = parseKey, lockName = 'baby-weight-sync' } = {}) {
+    basePath = '/api/sync', parseCredential = parseKey, lockName = 'baby-weight-sync', createOptions = {} } = {}) {
     this.log = log; this.fetcher = fetcher; this.onStatus = onStatus;
     this.basePath = basePath; this.parseCredential = parseCredential; this.lockName = lockName;
+    this.createOptions = createOptions;
     this.running = null; this.failures = 0; this.nextAttempt = 0;
   }
   async request(action, body, key) {
@@ -232,7 +233,7 @@ export class SyncEngine {
   async create() {
     const state = await this.log.read();
     if (state.sync) throw new Error('This browser already has a sync key. Use Reconnect.');
-    const data = await this.request('create', {});
+    const data = await this.request('create', this.createOptions);
     await this.log.link(data.key, { created: true });
     return data.key;
   }

@@ -2,9 +2,13 @@
 export const VERSION = 2;
 const ID = /^[A-Za-z0-9_-]{1,100}$/;
 export function parseKey(value) {
-  const match = typeof value === 'string' && /^nf1\.([a-f0-9-]{36})\.([a-f0-9]{64})$/.exec(value.trim());
-  if (!match) throw new Error('Invalid nursing sync key. Paste the complete nf1 key.');
-  return { key: match[0], datasetId: match[1] };
+  if (typeof value !== 'string' || value.length > 256) throw new Error('Enter the four-word sync passphrase or an existing nursing sync key.');
+  const match = /^nf1\.([a-f0-9-]{36})\.([a-f0-9]{64})$/.exec(value.trim());
+  if (match) return { key: match[0], datasetId: match[1] };
+  const key = value.trim().toLowerCase().replace(/\s+/g, ' ');
+  if (!/^[a-z]+(?:-[a-z]+)*(?: [a-z]+(?:-[a-z]+)*){3}$/.test(key)) throw new Error('Enter all four words, separated by spaces, or paste an existing nursing sync key.');
+  // The server derives the dataset ID from a domain-separated credential hash.
+  return { key, datasetId: null, format: 'passphrase' };
 }
 export function canonicalOperation(input) {
   if (!input || input.v !== VERSION || typeof input.opId !== 'string' || !ID.test(input.opId) || typeof input.sessionId !== 'string' || !ID.test(input.sessionId) || ['__proto__', 'constructor', 'prototype'].includes(input.sessionId)) throw new Error('Invalid nursing operation ID or version.');

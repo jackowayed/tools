@@ -199,7 +199,8 @@ profiles. No production data or Cloudflare account is used.
 
 `breastfeeding.html` syncs start, side changes, pause/resume, manual timer edits,
 save, reset, and saved-feed edits/deletions. Create sync under **Sync between
-devices**, copy the generated `nf1` key, and connect on each other device. The
+devices**, copy the generated four-word passphrase, and connect on each other device.
+Existing `nf1` keys remain valid. The
 current session includes its active side, accumulated durations, and the timestamp
 when the active segment began. Each device derives the ticking display locally;
 we upload actions rather than a write every second. Device clocks should use their
@@ -215,7 +216,7 @@ once, atomically, when IndexedDB upgrades to version 2. Old tabs close their
 connection and must reload. The previous local store remains as a backup.
 
 Nursing uses `/api/nursing-sync/{create,append,pull}`, protocol envelope v2, and
-its own validated operations and key prefix. It reuses the existing D1 tables,
+its own validated operations and credentials. It reuses the existing D1 tables,
 authentication, idempotency, rate limits, and 10,000-operation dataset quota.
 Weight keys cannot authenticate nursing routes or vice versa. **Deploy the Worker
 and client assets together**; no additional D1 migration is needed on an existing
@@ -237,3 +238,29 @@ and local browser eviction limitations described above apply. Browser/integratio
 tests cover a two-profile handoff, offline stale timer updates after save/reset,
 response-loss retry, simultaneous independent starts, migration, and validation.
 Run `npm run test:browser:nursing` in addition to the weight-log browser suite.
+
+
+### Four-word nursing passphrase prototype
+
+New nursing clients request `{credentialFormat: "passphrase"}` when creating sync.
+The server chooses four independent words from the bundled 7,776-word EFF large
+wordlist using WebCrypto and rejection sampling (about 51.7 bits of entropy).
+Words may repeat; four dictionary entries contain an internal hyphen. Users copy
+or type the generated phrase, rather than inventing a phrase. Entry is case
+insensitive and repeated whitespace is collapsed. The UI still accepts existing
+long nursing keys. The weight tracker continues using its existing keys.
+
+Only the normalized phrase is sent as the bearer credential over HTTPS. D1 stores
+SHA-256 of `nursing-passphrase-v1:` plus the phrase; the dataset primary key is
+`nf2-` plus that hash, enabling indexed lookup without transmitting a separate ID.
+Creation uses an atomic insert and retries on collision, never linking a newly
+created client to another user's existing log. No database migration is required.
+The full phrase stays in browser IndexedDB for reconnection, like the previous
+key. Anyone with the phrase can access the log; it has less entropy than the old
+256-bit token. Existing creation/request limits still apply.
+
+Deploy the Worker before or together with the client. Requests without the format
+option still receive legacy `nf1`/`bw1` keys, so existing clients keep working.
+Existing datasets are not automatically rekeyed; this prototype changes newly
+created nursing sync credentials only. The bundled wordlist retains its EFF
+source and Creative Commons attribution in `sync-passphrase.js`.

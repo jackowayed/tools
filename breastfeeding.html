@@ -59,11 +59,11 @@ footer { text-align: center; font-size: .8rem; } [hidden] { display: none !impor
 <section class="card" id="draftSection" hidden><h2>Other unfinished feeds</h2><p class="muted">Started independently on another device. Continue a feed to save or reset it.</p><div id="drafts"></div></section>
 <section class="card"><h2>Feed history</h2><div id="history"><p class="muted">No saved feeds yet.</p></div></section>
 <section class="card"><details id="syncSettings"><summary>Sync between devices</summary>
-<p class="muted">Create sync on one device, then copy its key and connect on the other. Timer actions and saved feeds sync automatically.</p>
-<label for="syncKey">Nursing sync key</label><input id="syncKey" type="password" autocomplete="off" spellcheck="false" placeholder="nf1.…">
-<div class="actions"><button id="syncCreate" disabled>Create sync</button><button id="syncConnect" disabled>Connect</button><button id="syncCopy" hidden>Copy key</button><button id="syncShow">Show key</button></div>
+<p class="muted">Create sync on one device, then copy its four-word passphrase and connect on the other. Timer actions and saved feeds sync automatically.</p>
+<label for="syncKey">Sync passphrase (or existing key)</label><input id="syncKey" type="password" autocomplete="off" spellcheck="false" autocapitalize="none" placeholder="Four words separated by spaces">
+<div class="actions"><button id="syncCreate" disabled>Create sync</button><button id="syncConnect" disabled>Connect</button><button id="syncCopy" hidden>Copy</button><button id="syncShow">Show</button></div>
 <div class="actions"><button id="syncNow" hidden>Sync now</button><button id="syncDisconnect" hidden>Disconnect</button></div>
-<p id="syncStatus" role="status">Opening local storage…</p><small>Keep this key private: it grants access to your nursing log. Use a separate key from the weight log. Offline actions sync when reconnected.</small>
+<p id="syncStatus" role="status">Opening local storage…</p><small>Keep your passphrase private: it grants access to your nursing log. Existing nursing sync keys still work. Offline actions sync when reconnected.</small>
 </details></section>
 <footer>Saved on this device, with optional sync. Timers continue while this page is closed.<br><a href="./baby-weight.html">Baby weight log</a></footer>
 </main>
