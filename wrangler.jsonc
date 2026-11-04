@@ -26,7 +26,8 @@
       "/api/daily_puzzle/*",
       "/api/quote-timeseries",
       "/api/purpleair-sensors",
-      "/api/sync/*"
+      "/api/sync/*",
+      "/api/nursing-sync/*"
     ]
   },
   "d1_databases": [

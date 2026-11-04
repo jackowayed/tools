@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#edf4f3">
+<meta name="apple-mobile-web-app-title" content="Nursing">
+<title>Breastfeeding Tracker</title>
+<style>
+* { box-sizing: border-box; }
+body { margin: 0; background: #edf4f3; color: #183c38; font-family: 'Segoe UI', system-ui, sans-serif; padding: 24px 16px 60px; }
+main { max-width: 460px; margin: auto; }
+header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
+h1 { font-size: 1.4rem; margin: 0; } a { color: #0f766e; }
+.card { background: white; border-radius: 20px; padding: 24px; margin-bottom: 16px; box-shadow: 0 2px 10px #00000008; }
+h2, .eyebrow { font-size: .75rem; text-transform: uppercase; letter-spacing: .12em; margin: 0 0 12px; font-weight: 700; }
+.muted, small { color: #58716e; } p { line-height: 1.5; }
+#lastAgo { font-size: 1.65rem; font-weight: 700; margin: 0 0 6px; }
+#lastSummary { margin: 0; } .last-card { background: #d6eae5; }
+#total { font-size: clamp(2.5rem, 10vw, 3.6rem); font-weight: 650; text-align: center; font-variant-numeric: tabular-nums; margin: 22px 0 0; }
+#timerStatus { text-align: center; min-height: 24px; margin: 4px 0 20px; }
+.sides, .actions, .fields { display: flex; gap: 12px; }
+button, input, select { font: inherit; }
+button { cursor: pointer; border: 1px solid #b8d2cd; border-radius: 12px; background: #f4faf9; color: #0f766e; min-height: 44px; padding: 10px 16px; font-weight: 600; }
+button:disabled { opacity: .45; cursor: default; } button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid #d28a35; outline-offset: 3px; }
+.side { flex: 1; border-radius: 24px; padding: 24px 8px; min-width: 0; }
+.side[aria-pressed=true], .primary { background: #0f766e; color: white; border-color: #0f766e; }
+.side strong { display: block; font-size: 1.3rem; margin: 10px 0; font-variant-numeric: tabular-nums; }
+.side span { display: block; } .side small { color: inherit; }
+.actions { margin-top: 16px; flex-wrap: wrap; } .actions > button { flex: 1; }
+#editCurrent { width: 100%; margin-top: 12px; background: transparent; border: 0; }
+#message { min-height: 24px; color: #a33126; } #notice { min-height: 20px; }
+.feed { border-top: 1px solid #e0ebe8; padding-top: 16px; margin-top: 16px; }
+.feed p { margin: 6px 0; } .feed .actions { margin-top: 8px; } .feed button { font-size: .85rem; }
+dialog { border: 0; border-radius: 20px; padding: 24px; width: min(440px, calc(100% - 24px)); color: #183c38; }
+dialog::backdrop { background: #163c3866; } label { display: block; font-size: .85rem; margin: 16px 0 6px; }
+input, select { width: 100%; min-width: 0; padding: 12px 8px; border: 1px solid #b8d2cd; border-radius: 8px; background: #fafcfb; color: #183c38; }
+.fields > div { flex: 1; min-width: 0; } #editError { color: #a33126; }
+footer { text-align: center; font-size: .8rem; } [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+<header><h1>Breastfeeding</h1><a href="./index.html">All tools</a></header>
+<section class="card last-card" aria-label="Last nursing session">
+<h2>Last nursing</h2><p id="lastAgo">No feeds yet</p><p id="lastSummary">Your last feed will appear here.</p><small id="lastHint"></small>
+</section>
+<section class="card" aria-labelledby="currentTitle">
+<h2 id="currentTitle">Current feed</h2><div id="started" class="muted">Choose a side to begin</div>
+<div id="total" role="timer" aria-label="Total nursing time">00:00:00</div><p id="timerStatus" class="muted">Ready when you are</p>
+<div class="sides">
+<button class="side" id="left" aria-pressed="false" disabled><span>Left</span><strong id="leftTime">00:00:00</strong><small id="leftAction">Start left</small></button>
+<button class="side" id="right" aria-pressed="false" disabled><span>Right</span><strong id="rightTime">00:00:00</strong><small id="rightAction">Start right</small></button>
+</div>
+<div class="actions"><button id="pause" disabled>Pause</button><button id="save" class="primary" disabled>Save feed</button><button id="reset" disabled>Reset</button></div>
+<button id="editCurrent" disabled>Edit time / add manually</button>
+<div id="message" role="alert"></div><small id="notice" role="status"></small>
+</section>
+<section class="card" id="draftSection" hidden><h2>Other unfinished feeds</h2><p class="muted">Started independently on another device. Continue a feed to save or reset it.</p><div id="drafts"></div></section>
+<section class="card"><h2>Feed history</h2><div id="history"><p class="muted">No saved feeds yet.</p></div></section>
+<section class="card"><details id="syncSettings"><summary>Sync between devices</summary>
+<p class="muted">Create sync on one device, then copy its key and connect on the other. Timer actions and saved feeds sync automatically.</p>
+<label for="syncKey">Nursing sync key</label><input id="syncKey" type="password" autocomplete="off" spellcheck="false" placeholder="nf1.…">
+<div class="actions"><button id="syncCreate" disabled>Create sync</button><button id="syncConnect" disabled>Connect</button><button id="syncCopy" hidden>Copy key</button><button id="syncShow">Show key</button></div>
+<div class="actions"><button id="syncNow" hidden>Sync now</button><button id="syncDisconnect" hidden>Disconnect</button></div>
+<p id="syncStatus" role="status">Opening local storage…</p><small>Keep this key private: it grants access to your nursing log. Use a separate key from the weight log. Offline actions sync when reconnected.</small>
+</details></section>
+<footer>Saved on this device, with optional sync. Timers continue while this page is closed.<br><a href="./baby-weight.html">Baby weight log</a></footer>
+</main>
+<dialog id="editor"><form id="editForm">
+<h2 id="editTitle">Edit feed</h2><p class="muted">Adjust nursing time, excluding pauses. Editing the current feed pauses its timer.</p>
+<label for="startInput">Start time</label><input id="startInput" type="datetime-local" step="1" required>
+<div class="fields"><div><label for="leftInput">Left (minutes:seconds)</label><input id="leftInput" placeholder="08:30" pattern="[0-9]+:[0-5][0-9]" required inputmode="text"></div><div><label for="rightInput">Right (minutes:seconds)</label><input id="rightInput" placeholder="00:00" pattern="[0-9]+:[0-5][0-9]" required inputmode="text"></div></div>
+<label for="lastInput">Last breast used</label><select id="lastInput"><option value="left">Left</option><option value="right">Right</option></select>
+<p id="editError" role="alert"></p><div class="actions"><button type="button" id="cancelEdit">Cancel</button><button type="submit" class="primary">Apply changes</button></div>
+</form></dialog>
+<script type="module" src="./breastfeeding.js"></script>
+</body>
+</html>

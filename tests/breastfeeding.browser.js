@@ -1,0 +1,124 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { chromium } from 'playwright-core';
+import { createServer } from 'node:http';
+import { readFile } from 'node:fs/promises';
+import { startBackend } from './fixture.js';
+
+// Run with CHROMIUM_PATH=/usr/bin/chromium node --test tests/breastfeeding.browser.js
+// or use Playwright's installed Chromium.
+test('mobile nursing workflow persists, edits, and coordinates tabs', async () => {
+  const { mf } = await startBackend();
+  const server = createServer(async (req, res) => {
+    if (req.url.startsWith('/api/')) {
+      const chunks = [];
+      for await (const chunk of req) chunks.push(chunk);
+      const response = await mf.dispatchFetch(`http://${req.headers.host}${req.url}`, { method: req.method, headers: req.headers, body: Buffer.concat(chunks) });
+      res.writeHead(response.status, Object.fromEntries(response.headers));
+      res.end(await response.text()); return;
+    }
+    const name = req.url.split('/').pop();
+    if (!['breastfeeding.html', 'breastfeeding.js', 'breastfeeding-timer.js', 'breastfeeding-sync.js', 'breastfeeding-protocol.js', 'sync-client.js', 'sync-protocol.js'].includes(name)) { res.writeHead(404).end(); return; }
+    res.setHeader('Content-Type', name.endsWith('.js') ? 'text/javascript' : 'text/html');
+    res.end(await readFile(new URL('../' + name, import.meta.url)));
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  let browser;
+  try {
+    browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined, args: ['--no-sandbox'] });
+    const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    const page = await context.newPage();
+    const errors = []; page.on('pageerror', error => errors.push(error.message));
+    const url = `http://127.0.0.1:${server.address().port}/breastfeeding.html`;
+    await page.goto(url);
+    await page.waitForFunction(() => !document.getElementById('left').disabled);
+    await page.clock.install();
+    await page.click('#left');
+    await page.waitForFunction(() => document.getElementById('left').getAttribute('aria-pressed') === 'true');
+    await page.clock.runFor(5000);
+    await page.click('#right');
+    await page.waitForFunction(() => document.getElementById('right').getAttribute('aria-pressed') === 'true');
+    await page.clock.runFor(8000);
+    await page.click('#pause');
+    await page.waitForFunction(() => document.getElementById('timerStatus').textContent === 'Paused');
+    assert.equal(await page.textContent('#leftTime'), '00:00:05');
+    assert.equal(await page.textContent('#rightTime'), '00:00:08');
+    await page.clock.runFor(60000);
+    assert.equal(await page.textContent('#total'), '00:00:13');
+    await page.click('#save');
+    await page.waitForFunction(() => document.getElementById('total').textContent === '00:00:00');
+    assert.match(await page.textContent('#lastSummary'), /R\* 00:00:08/);
+    await page.reload();
+    await page.waitForFunction(() => !document.getElementById('left').disabled);
+    assert.equal(await page.locator('.feed').count(), 1);
+    await page.click('#editCurrent');
+    await page.fill('#leftInput', '08:30');
+    await page.fill('#rightInput', '02:15');
+    await page.selectOption('#lastInput', 'left');
+    await page.click('button[type=submit]');
+    await page.waitForFunction(() => !document.getElementById('editor').open);
+    await page.click('#save');
+    await page.waitForFunction(() => document.getElementById('total').textContent === '00:00:00');
+    assert.equal(await page.locator('.feed').count(), 2);
+    assert.match(await page.textContent('#lastSummary'), /L\* 00:08:30/);
+    await page.locator('.feed').first().getByText('Edit', { exact: true }).click();
+    await page.fill('#leftInput', '09:00');
+    await page.click('button[type=submit]');
+    await page.waitForFunction(() => !document.getElementById('editor').open);
+    assert.match(await page.textContent('#lastSummary'), /L\* 00:09:00/);
+    await page.click('#right');
+    await page.waitForFunction(() => document.getElementById('right').getAttribute('aria-pressed') === 'true');
+    await page.clock.runFor(3000);
+    await page.reload();
+    await page.waitForFunction(() => document.getElementById('right').getAttribute('aria-pressed') === 'true');
+    assert.equal(await page.textContent('#rightTime'), '00:00:03');
+    const other = await context.newPage();
+    await other.clock.install({ time: await page.evaluate(() => Date.now()) });
+    await other.goto(url);
+    await other.waitForFunction(() => !document.getElementById('pause').disabled);
+    await other.click('#pause');
+    await page.waitForFunction(() => document.getElementById('timerStatus').textContent === 'Paused');
+    page.once('dialog', dialog => dialog.dismiss());
+    await page.click('#reset');
+    assert.notEqual(await page.textContent('#total'), '00:00:00');
+    page.once('dialog', dialog => dialog.accept());
+    await page.click('#reset');
+    await page.waitForFunction(() => document.getElementById('total').textContent === '00:00:00');
+    assert.equal(await page.locator('.feed').count(), 2);
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+    await page.screenshot({ path: '/tmp/breastfeeding-mobile.png', fullPage: true });
+    await other.close();
+    await page.click('#syncSettings summary');
+    await page.click('#syncCreate');
+    await page.waitForFunction(() => document.getElementById('syncStatus').textContent.startsWith('Up to date'));
+    const key = await page.inputValue('#syncKey');
+    assert.match(key, /^nf1\./);
+    const secondContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    const second = await secondContext.newPage();
+    second.on('pageerror', error => errors.push(error.message));
+    await second.clock.install({ time: await page.evaluate(() => Date.now()) });
+    await second.goto(url);
+    await second.click('#syncSettings summary');
+    await second.fill('#syncKey', key);
+    await second.click('#syncConnect');
+    await second.waitForFunction(() => document.querySelectorAll('.feed').length === 2);
+    await page.click('#left');
+    await page.waitForFunction(() => document.getElementById('syncStatus').textContent.startsWith('Up to date') && document.getElementById('left').getAttribute('aria-pressed') === 'true');
+    await second.clock.runFor(5000);
+    await second.waitForFunction(() => document.getElementById('left').getAttribute('aria-pressed') === 'true');
+    await second.click('#right');
+    await second.waitForFunction(() => document.getElementById('right').getAttribute('aria-pressed') === 'true');
+    await second.clock.runFor(5000);
+    await second.click('#save');
+    await second.waitForFunction(() => document.querySelectorAll('.feed').length === 3 && document.getElementById('syncStatus').textContent.startsWith('Up to date'));
+    await page.clock.runFor(5000);
+    await page.waitForFunction(() => document.querySelectorAll('.feed').length === 3 && document.getElementById('total').textContent === '00:00:00');
+    assert.match(await page.textContent('#lastSummary'), /R\*/);
+    await secondContext.close();
+    assert.deepEqual(errors, []);
+  } finally {
+    await browser?.close();
+    await new Promise(resolve => server.close(resolve));
+    await mf.dispose();
+  }
+});

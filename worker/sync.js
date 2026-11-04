@@ -43,9 +43,9 @@ async function rateAllowed(db, request, creating) {
   return result.count <= (creating ? 5 : 120);
 }
 
-export async function handleSync(request, env) {
+export async function handleSync(request, env, protocol = { canonicalOperation, parseKey }, prefix = '/api/sync', keyPrefix = 'bw1') {
   const path = new URL(request.url).pathname;
-  if (!['/api/sync/create', '/api/sync/append', '/api/sync/pull'].includes(path)) return json({ error: 'Not found.' }, 404);
+  if (![`${prefix}/create`, `${prefix}/append`, `${prefix}/pull`].includes(path)) return json({ error: 'Not found.' }, 404);
   if (request.method !== 'POST') return json({ error: 'Use POST.' }, 405);
   if (!env.SYNC_DB) return json({ error: 'Sync is not configured on this server.' }, 503);
   // No cross-origin browser writes, including unauthenticated dataset creation.
@@ -59,7 +59,7 @@ export async function handleSync(request, env) {
     try { body = await readBody(request); } catch (error) { return json({ error: error.message }, 400); }
     if (creating) {
       const id = crypto.randomUUID();
-      const key = `bw1.${id}.${hex(crypto.getRandomValues(new Uint8Array(32)))}`;
+      const key = `${keyPrefix}.${id}.${hex(crypto.getRandomValues(new Uint8Array(32)))}`;
       await db.prepare('INSERT INTO datasets(id, credential_hash, created_at) VALUES (?, ?, ?)')
         .bind(id, await digest(key), Date.now()).run();
       return json({ v: VERSION, datasetId: id, key }, 201);
@@ -68,7 +68,7 @@ export async function handleSync(request, env) {
     try {
       const header = request.headers.get('authorization') || '';
       if (!header.startsWith('Bearer ')) throw new Error('Missing bearer credential.');
-      auth = parseKey(header.slice(7));
+      auth = protocol.parseKey(header.slice(7));
     }
     catch { return json({ error: 'Invalid sync key.' }, 401); }
     const dataset = await db.prepare('SELECT id FROM datasets WHERE id = ? AND credential_hash = ?')
@@ -85,7 +85,7 @@ export async function handleSync(request, env) {
     let ops;
     try {
       if (!Array.isArray(body.ops) || !body.ops.length || body.ops.length > MAX_BATCH) throw new Error('Send 1–50 operations.');
-      ops = body.ops.map(canonicalOperation);
+      ops = body.ops.map(protocol.canonicalOperation);
     } catch (error) { return json({ error: error.message }, 400); }
     const statements = [];
     for (const op of ops) {

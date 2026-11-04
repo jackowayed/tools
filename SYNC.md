@@ -193,3 +193,47 @@ Unit/integration tests run the actual Worker and migration against
 Miniflare D1, with fake-indexeddb for deterministic local-storage race tests.
 Browser tests use real IndexedDB in Chromium, two tabs, and two isolated browser
 profiles. No production data or Cloudflare account is used.
+
+
+## Breastfeeding sync
+
+`breastfeeding.html` syncs start, side changes, pause/resume, manual timer edits,
+save, reset, and saved-feed edits/deletions. Create sync under **Sync between
+devices**, copy the generated `nf1` key, and connect on each other device. The
+current session includes its active side, accumulated durations, and the timestamp
+when the active segment began. Each device derives the ticking display locally;
+we upload actions rather than a write every second. Device clocks should use their
+automatic date/time setting.
+
+Writes commit locally with their outbox operations before the UI reports success.
+A sync cycle runs after every action, on reconnect/focus/visibility, and every five
+seconds while visible, using the existing backoff and retry behavior. Polling is
+not instantaneous; background devices catch up when reopened. The UI shows pending
+actions and errors, and **Sync now** forces a retry. Disconnect retains queued
+work and the original key. Existing local-only feeds and the active timer migrate
+once, atomically, when IndexedDB upgrades to version 2. Old tabs close their
+connection and must reload. The previous local store remains as a backup.
+
+Nursing uses `/api/nursing-sync/{create,append,pull}`, protocol envelope v2, and
+its own validated operations and key prefix. It reuses the existing D1 tables,
+authentication, idempotency, rate limits, and 10,000-operation dataset quota.
+Weight keys cannot authenticate nursing routes or vice versa. **Deploy the Worker
+and client assets together**; no additional D1 migration is needed on an existing
+sync deployment. A fresh installation still needs migration `0001` above.
+
+Each feed has a stable session ID. Timer snapshots resolve by the highest accepted
+server sequence, not by device clocks. Concurrent changes to the same timer use
+the last accepted full snapshot, so overlapping offline edits do not merge their
+durations. Save and reset permanently end a session: late running snapshots can
+never restart it. Reset only discards a timer and cannot delete a feed already
+saved on another device; an explicit saved-feed deletion is required. Saved-feed edits remain allowed; deletion permanently wins over
+edits. Saving the same session from two devices produces one feed. Independent
+starts retain both sessions; the most recently updated one is current and the
+others appear under **Other unfinished feeds**, where they can be continued,
+saved, or reset. Connecting an existing local log merges its history and drafts.
+
+The same key confidentiality, server-readable health-data, historical retention,
+and local browser eviction limitations described above apply. Browser/integration
+tests cover a two-profile handoff, offline stale timer updates after save/reset,
+response-loss retry, simultaneous independent starts, migration, and validation.
+Run `npm run test:browser:nursing` in addition to the weight-log browser suite.

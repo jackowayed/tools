@@ -212,12 +212,14 @@ export class LocalLog {
 }
 
 export class SyncEngine {
-  constructor(log, { fetcher = globalThis.fetch.bind(globalThis), onStatus = () => {} } = {}) {
+  constructor(log, { fetcher = globalThis.fetch.bind(globalThis), onStatus = () => {},
+    basePath = '/api/sync', parseCredential = parseKey, lockName = 'baby-weight-sync' } = {}) {
     this.log = log; this.fetcher = fetcher; this.onStatus = onStatus;
+    this.basePath = basePath; this.parseCredential = parseCredential; this.lockName = lockName;
     this.running = null; this.failures = 0; this.nextAttempt = 0;
   }
   async request(action, body, key) {
-    const response = await this.fetcher(`/api/sync/${action}`, {
+    const response = await this.fetcher(`${this.basePath}/${action}`, {
       method: 'POST', headers: { 'content-type': 'application/json', ...(key ? { authorization: `Bearer ${key}` } : {}) },
       body: JSON.stringify({ v: VERSION, ...body }), signal: AbortSignal.timeout(15000), cache: 'no-store',
     });
@@ -235,7 +237,7 @@ export class SyncEngine {
     return data.key;
   }
   async connect(key) {
-    const auth = parseKey(key);
+    const auth = this.parseCredential(key);
     const state = await this.log.read();
     if (state.sync && state.sync.key !== auth.key) throw new Error('Use this browser’s original sync key. Switching datasets is not supported.');
     // Authenticate before binding local work or discarding initial local settings.
@@ -276,7 +278,7 @@ export class SyncEngine {
     this.running = (async () => {
       try {
         if (globalThis.navigator?.locks) {
-          await navigator.locks.request('baby-weight-sync', { ifAvailable: true }, lock => lock ? this.cycle() : undefined);
+          await navigator.locks.request(this.lockName, { ifAvailable: true }, lock => lock ? this.cycle() : undefined);
         } else await this.cycle();
         this.failures = 0; this.nextAttempt = 0; this.onStatus('');
       } catch (error) {

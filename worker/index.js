@@ -1,4 +1,5 @@
 import { handleSync } from './sync.js';
+import * as nursingProtocol from '../breastfeeding-protocol.js';
 
 // Edge Worker for the tools site.
 //
@@ -47,6 +48,7 @@ const PURPLEAIR_FIELDS = [
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    if (url.pathname.startsWith('/api/nursing-sync/')) return handleSync(request, env, nursingProtocol, '/api/nursing-sync', 'nf1');
     if (url.pathname.startsWith('/api/sync/')) return handleSync(request, env);
 
     // Transparent same-origin proxy for the MinuteCryptic daily puzzle API.
