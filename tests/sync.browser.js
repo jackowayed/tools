@@ -62,6 +62,43 @@ async function savedBirth(page) {
   });
 }
 
+test('Chromium: diaper subtraction defaults off, saves net kg in either unit, and never changes earlier readings', async () => {
+  const context = await browser.newContext();
+  const page = await open(context);
+  assert.equal(await page.locator('#subtractDiaper').isChecked(), false);
+  await page.locator('#diaperGrams').fill('30');
+  await page.locator('#diaperGrams').press('Tab');
+  await page.waitForFunction(() => document.querySelector('#diaperAmount').textContent === '(30 g)');
+  await page.locator('#subtractDiaper').check();
+  await add(page, 3.5);
+  assert.equal(await page.locator('#subtractDiaper').isChecked(), false);
+  await page.locator('#diaperGrams').fill('50');
+  await page.locator('#diaperGrams').press('Tab');
+  await page.waitForFunction(() => document.querySelector('#diaperAmount').textContent === '(50 g)');
+  await page.locator('#unitLb').click();
+  await page.locator('#lb').fill('8');
+  await page.locator('#oz').fill('2');
+  await page.locator('#subtractDiaper').check();
+  await page.locator('#addReading').click();
+  await page.waitForFunction(() => document.querySelector('#lb').value === '');
+  await add(page, 4);
+  await page.reload();
+  await page.waitForFunction(() => !document.querySelector('#addReading').disabled);
+  const saved = await page.evaluate(async () => {
+    const { LocalLog, visibleState } = await import('/sync-client.js');
+    const log = await LocalLog.open({ broadcast: false });
+    try { return visibleState(await log.read()); } finally { log.close(); }
+  });
+  assert.equal(saved.settings.diaperGrams, 50);
+  assert.deepEqual(saved.entries.map(e => e.kg), [3.47, (8 + 2 / 16) * 0.45359237 - 0.05, 4]);
+  await page.locator('#table .edit').last().click();
+  assert.equal(await page.locator('#subtractDiaperRow').isVisible(), false);
+  await page.locator('#addReading').click();
+  await page.waitForFunction(() => document.querySelector('#kg').value === '');
+  assert.equal(await page.locator('#subtractDiaper').isChecked(), false);
+  await context.close();
+});
+
 test('Chromium: incomplete birth dates survive refreshes without clearing the saved date', async () => {
   const context = await browser.newContext({ locale: 'en-US' });
   const page = await open(context);
@@ -132,7 +169,7 @@ test('Chromium: storage refreshes and failed saves preserve the birth date draft
 test('Chromium: collapsed sync settings and compact table follow the entry unit', async () => {
   const context = await browser.newContext();
   const page = await open(context);
-  assert.equal(await page.locator('#babySettings summary').textContent(), 'Age & Sync Settings');
+  assert.equal(await page.locator('#babySettings summary').textContent(), 'Age, Weight & Sync Settings');
   await page.locator('#babySettings summary').click();
   assert.equal(await page.locator('#syncKey').isVisible(), false);
   await page.locator('#babySettings summary').click();

@@ -1,9 +1,9 @@
 import { VERSION, MAX_BATCH, canonicalOperation, entryPayload, newOperation, parseKey, validBirth } from './sync-protocol.js';
 
-const DEFAULT_SETTINGS = { birth: '', sex: '', unit: 'lb' };
+const DEFAULT_SETTINGS = { birth: '', sex: '', unit: 'lb', diaperGrams: 0 };
 function initialState(legacy) {
   const state = { revision: 0, entries: [], edits: [], tombstones: [], pending: [],
-    settings: { ...DEFAULT_SETTINGS }, versions: { birth: 0, sex: 0 }, sync: null };
+    settings: { ...DEFAULT_SETTINGS }, versions: { birth: 0, sex: 0, diaperGrams: 0 }, sync: null };
   for (const entry of legacy.entries || []) {
     const entryId = /^[A-Za-z0-9_-]{1,100}$/.test(entry.id || '') ? entry.id : crypto.randomUUID();
     const op = newOperation('add-entry', { entryId, timestamp: Math.trunc(entry.ts), kg: entry.kg, afterFeed: entry.afterFeed === true, clothed: entry.clothed === true });
@@ -44,7 +44,7 @@ function applyOperation(state, op, seq = 0) {
     }
   } else if (op.type === 'delete-entry') {
     if (!state.tombstones.includes(op.entryId)) state.tombstones.push(op.entryId);
-  } else if (seq > state.versions[op.field]) {
+  } else if (seq > (state.versions[op.field] ?? 0)) {
     state.settings[op.field] = op.value;
     state.versions[op.field] = seq;
   }
@@ -52,7 +52,7 @@ function applyOperation(state, op, seq = 0) {
 
 export function visibleState(state) {
   const deleted = new Set(state.tombstones);
-  const settings = { ...state.settings };
+  const settings = { ...DEFAULT_SETTINGS, ...state.settings };
   const edits = new Map((state.edits || []).map(edit => [edit.op.entryId, edit.op]));
   for (const op of state.pending) {
     if (op.type === 'set-setting') settings[op.field] = op.value;
@@ -135,6 +135,23 @@ export class LocalLog {
       return state;
     });
   }
+  addWeighIn(fields, { subtractDiaper = false } = {}) {
+    return this.change(state => {
+      // Read the saved setting in the same transaction as the add, including
+      // pending settings and changes saved by another tab. Store only net kg.
+      let kg = fields.kg;
+      if (subtractDiaper) {
+        const grams = visibleState(state).settings.diaperGrams;
+        if (!(grams > 0)) throw new Error('Set a diaper weight in Settings before subtracting it.');
+        kg -= grams / 1000;
+        if (!(kg > 0)) throw new Error('Weight must be greater than the diaper weight.');
+      }
+      const op = newOperation('add-entry', { ...fields, kg });
+      applyOperation(state, op);
+      state.pending.push(op);
+      return state;
+    });
+  }
   replaceEntry(entryId, fields) {
     // One operation is atomic even at upload/page boundaries and the quota limit.
     const replacement = newOperation('update-entry', { ...fields, entryId });
@@ -158,8 +175,8 @@ export class LocalLog {
           // Joining imports entries and tombstones, but not old/default baby settings.
           state.pending = state.pending.filter(op => op.type !== 'set-setting'
             || (discardSettingIds !== null && !discardSettingIds.includes(op.opId)));
-          state.settings.birth = ''; state.settings.sex = '';
-          state.versions = { birth: 0, sex: 0 };
+          state.settings.birth = ''; state.settings.sex = ''; state.settings.diaperGrams = 0;
+          state.versions = { birth: 0, sex: 0, diaperGrams: 0 };
         }
         state.sync = { ...auth, cursor: 0, syncedAt: null };
       }

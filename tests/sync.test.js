@@ -29,6 +29,34 @@ before(async () => { ({ mf, db } = await startBackend()); });
 
 after(async () => { for (const item of logs) item.close(); await mf?.dispose(); });
 
+test('diaper subtraction uses the current saved setting and preserves historical net weights across sync', async () => {
+  const local = await log(), otherTab = await log(local.db.name);
+  await assert.rejects(local.addWeighIn(fields(add()), { subtractDiaper: true }), /Set a diaper weight/);
+  await otherTab.mutate('set-setting', { field: 'diaperGrams', value: 30 });
+  await local.addWeighIn(fields(add('first', 3.5)), { subtractDiaper: true });
+  await otherTab.mutate('set-setting', { field: 'diaperGrams', value: 50 });
+  await local.addWeighIn(fields(add('second', 3.5)), { subtractDiaper: true });
+  await local.addWeighIn(fields(add('plain', 3.5)));
+  const expected = [3.47, 3.45, 3.5];
+  assert.deepEqual(visibleState(await local.read()).entries.map(e => e.kg), expected);
+  await assert.rejects(local.addWeighIn(fields(add('invalid', 0.04)), { subtractDiaper: true }), /greater than the diaper/);
+  for (const value of [-1, 1001, NaN, '30']) {
+    assert.throws(() => newOperation('set-setting', { field: 'diaperGrams', value }), /Invalid setting/);
+  }
+  const engine = new SyncEngine(local, { fetcher });
+  await engine.create(); await engine.run();
+  const remote = await log();
+  await remote.mutate('set-setting', { field: 'diaperGrams', value: 90 });
+  const remoteEngine = new SyncEngine(remote, { fetcher });
+  await remoteEngine.connect((await local.read()).sync.key); await remoteEngine.run();
+  assert.equal(visibleState(await remote.read()).settings.diaperGrams, 50);
+  assert.deepEqual(visibleState(await remote.read()).entries.map(e => e.kg), expected);
+  await remote.mutate('set-setting', { field: 'diaperGrams', value: 60 });
+  await remoteEngine.run(); await engine.run({ force: true });
+  assert.equal(visibleState(await local.read()).settings.diaperGrams, 60);
+  assert.deepEqual(visibleState(await local.read()).entries.map(e => e.kg), expected);
+});
+
 test('D1: concurrent appenders, response loss retry, authentication, and conflicts', async () => {
   const credential = await create();
   const first = add(), second = add();
@@ -277,8 +305,8 @@ test('reset clears all local state, rejects stale tabs and preserves the server 
   assert.deepEqual(state.entries, []);
   assert.deepEqual(state.tombstones, []);
   assert.deepEqual(state.pending, []);
-  assert.deepEqual(state.settings, { birth: '', sex: '', unit: 'lb' });
-  assert.deepEqual(state.versions, { birth: 0, sex: 0 });
+  assert.deepEqual(state.settings, { birth: '', sex: '', unit: 'lb', diaperGrams: 0 });
+  assert.deepEqual(state.versions, { birth: 0, sex: 0, diaperGrams: 0 });
   assert.equal(state.sync, null);
   await assert.rejects(stale.mutate('set-setting', { field: 'sex', value: 'male' }), /client was reset/);
   await assert.rejects(stale.link(credential), /client was reset/);

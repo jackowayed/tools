@@ -37,7 +37,9 @@ export function canonicalOperation(input) {
     if (input.clothed === true) op.clothed = true;
   } else if (op.type === 'set-setting') {
     if (input.field === 'birth' ? !validBirth(input.value)
-      : input.field === 'sex' ? !['', 'male', 'female'].includes(input.value) : true) throw new Error('Invalid setting.');
+      : input.field === 'sex' ? !['', 'male', 'female'].includes(input.value)
+      : input.field === 'diaperGrams' ? typeof input.value !== 'number' || !Number.isFinite(input.value) || input.value < 0 || input.value > 1000
+      : true) throw new Error('Invalid setting.');
     Object.assign(op, { field: input.field, value: input.value });
   } else if (op.type !== 'delete-entry') throw new Error('Unknown operation type.');
   return op;

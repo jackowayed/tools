@@ -642,6 +642,12 @@
   <span id="clothingPillHint" hidden>Cycle between naked and clothed.</span>
   <span id="feedPillHint" hidden>Cycle between before feed and after feed.</span>
   <div class="hint">Clothed readings show 👕 instead of a percentile in the table.</div>
+  <div class="datetime-toggle" id="subtractDiaperRow">
+    <label class="dt-check" for="subtractDiaper">
+      <input type="checkbox" id="subtractDiaper">
+      <span>Subtract diaper <span class="optional" id="diaperAmount"></span></span>
+    </label>
+  </div>
   <div class="datetime-toggle">
     <label class="dt-check" for="useCustomTime">
       <input type="checkbox" id="useCustomTime">
@@ -705,7 +711,12 @@
 </details>
 
 <details class="card settings-card" id="babySettings">
-  <summary>Age &amp; Sync Settings</summary>
+  <summary>Age, Weight &amp; Sync Settings</summary>
+  <div class="settings-row">
+    <label for="diaperGrams">Diaper weight (g)</label>
+    <input type="number" id="diaperGrams" inputmode="decimal" min="0" max="1000" step="any" placeholder="0" aria-describedby="diaperHint">
+  </div>
+  <div class="settings-note" id="diaperHint">Saved automatically. Subtracted only when selected for a new weigh-in. Changes never affect earlier readings.</div>
   <div class="settings-row">
     <label for="birthDate">Birth date</label>
     <input type="date" id="birthDate">
@@ -720,7 +731,7 @@
   <div class="settings-note" id="settingsNote">Saved automatically in this browser. Percentiles need both birth date and sex (WHO weight-for-age, 0–5 years).</div>
 <div id="syncCard">
   <h2>Sync between devices</h2>
-  <p class="settings-note">Create a sync key here, then paste it on another device. Connecting combines this browser’s weigh-ins with that log; the synced birth date and sex take precedence.</p>
+  <p class="settings-note">Create a sync key here, then paste it on another device. Connecting combines this browser’s weigh-ins with that log; the synced birth date, sex, and diaper weight take precedence.</p>
   <p class="settings-note">If devices edit the same weigh-in, the last edit received by the server wins. Deleting a weigh-in takes precedence over edits.</p>
   <label for="syncKey">Sync key</label>
   <input id="syncKey" type="password" autocomplete="off" spellcheck="false" autocapitalize="off" placeholder="Paste an existing sync key" style="width:100%;box-sizing:border-box;margin:8px 0">
@@ -784,6 +795,8 @@ const unitLbBtn = document.getElementById('unitLb');
 const unitKgBtn = document.getElementById('unitKg');
 const feedToggle = document.getElementById('feedToggle');
 const clothedToggle = document.getElementById('clothedToggle');
+const subtractDiaperEl = document.getElementById('subtractDiaper');
+const diaperGramsEl = document.getElementById('diaperGrams');
 const dtEl = document.getElementById('datetime');
 const useCustomEl = document.getElementById('useCustomTime');
 const errEl = document.getElementById('err');
@@ -1063,6 +1076,8 @@ function escHtml(s) {
 }
 
 function renderSettingsUI() {
+  if (document.activeElement !== diaperGramsEl) diaperGramsEl.value = String(settings.diaperGrams ?? 0);
+  document.getElementById('diaperAmount').textContent = `(${settings.diaperGrams ?? 0} g)`;
   // Assigning a date input's value also resets its partially typed segments.
   // Storage/sync refreshes must leave an active or unsaved edit alone.
   const birthValue = settings.birth || '';
@@ -1380,9 +1395,9 @@ async function persist(action) {
 }
 
 async function addEntry(entry, ts) {
-  return persist(() => localLog.mutate('add-entry', {
+  return persist(() => localLog.addWeighIn({
     entryId: makeId(), timestamp: ts ?? Date.now(), kg: entry.kg, afterFeed: entry.afterFeed, clothed: entry.clothed,
-  }));
+  }, { subtractDiaper: subtractDiaperEl.checked }));
 }
 
 function toLocalInputValue(d) {
@@ -1481,6 +1496,13 @@ unitLbBtn.addEventListener('click', async () => {
 unitKgBtn.addEventListener('click', async () => {
   if (await persist(() => localLog.setUnit('kg'))) kgEl.focus();
 });
+diaperGramsEl.addEventListener('change', async () => {
+  if (diaperGramsEl.value === '' || !diaperGramsEl.validity.valid) {
+    errEl.textContent = 'Enter a diaper weight between 0 and 1000 grams (0 to turn off).';
+    return;
+  }
+  await persist(() => localLog.mutate('set-setting', { field: 'diaperGrams', value: Number(diaperGramsEl.value) }));
+});
 birthEl.addEventListener('input', () => {
   birthDraftDirty = true;
   birthEditVersion++;
@@ -1522,6 +1544,8 @@ document.querySelectorAll('.tab').forEach(tab => {
 });
 
 function resetEdit() {
+  subtractDiaperEl.checked = false;
+  document.getElementById('subtractDiaperRow').hidden = false;
   editingEntry = null;
   editWeightValues = null;
   document.getElementById('entryFormTitle').textContent = 'Add a weigh-in';
@@ -1542,6 +1566,8 @@ function handleEditClick(ev) {
   const entry = entries.find(e => e.id === btn.dataset.id);
   if (!entry) return;
   editingEntry = { ...entry };
+  subtractDiaperEl.checked = false;
+  document.getElementById('subtractDiaperRow').hidden = true;
   // Keep full precision when correcting only the feed label or time.
   lbEl.value = String(entry.kg / KG_PER_LB);
   ozEl.value = '';
@@ -1591,7 +1617,7 @@ const syncConnectEl = document.getElementById('syncConnect');
 const syncDisconnectEl = document.getElementById('syncDisconnect');
 const syncRetryEl = document.getElementById('syncRetry');
 const syncCopyEl = document.getElementById('syncCopy');
-const mutationControls = [document.getElementById('addReading'), unitLbBtn, unitKgBtn, birthEl, sexGirlBtn, sexBoyBtn];
+const mutationControls = [document.getElementById('addReading'), unitLbBtn, unitKgBtn, birthEl, sexGirlBtn, sexBoyBtn, diaperGramsEl];
 for (const control of [...mutationControls, syncCreateEl, syncConnectEl]) control.disabled = true;
 
 async function refreshFromStorage() {
