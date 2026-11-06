@@ -58,16 +58,18 @@ export async function handleSync(request, env, protocol = { canonicalOperation, 
     if (!await rateAllowed(db, request, creating)) return json({ error: 'Too many requests. Try again later.' }, 429);
     let body;
     try { body = await readBody(request); } catch (error) { return json({ error: error.message }, 400); }
+    const phraseDomain = keyPrefix === 'nf1' ? 'nursing-passphrase-v1' : 'weight-passphrase-v1';
+    const phrasePrefix = keyPrefix === 'nf1' ? 'nf2' : 'bw2';
     if (creating) {
-      if (body.credentialFormat !== undefined && (body.credentialFormat !== 'passphrase' || keyPrefix !== 'nf1'))
+      if (body.credentialFormat !== undefined && (body.credentialFormat !== 'passphrase' || !['nf1', 'bw1'].includes(keyPrefix)))
         return json({ error: 'Unsupported credential format.' }, 400);
       if (body.credentialFormat === 'passphrase') {
         // A hash-derived primary key makes collisions atomic without a migration.
         // Never attach a newly created client to an existing dataset on collision.
         for (let attempt = 0; attempt < 5; attempt++) {
           const key = generatePassphrase();
-          const hash = await digest(`nursing-passphrase-v1:${key}`);
-          const id = `nf2-${hash}`;
+          const hash = await digest(`${phraseDomain}:${key}`);
+          const id = `${phrasePrefix}-${hash}`;
           const result = await db.prepare('INSERT INTO datasets(id, credential_hash, created_at) VALUES (?, ?, ?) ON CONFLICT(id) DO NOTHING RETURNING id')
             .bind(id, hash, Date.now()).first();
           if (result) return json({ v: VERSION, datasetId: id, key }, 201);
@@ -88,8 +90,8 @@ export async function handleSync(request, env, protocol = { canonicalOperation, 
       auth = protocol.parseKey(header.slice(7));
     }
     catch { return json({ error: 'Invalid sync credentials.' }, 401); }
-    const credentialHash = await digest(auth.format === 'passphrase' ? `nursing-passphrase-v1:${auth.key}` : auth.key);
-    const datasetId = auth.format === 'passphrase' ? `nf2-${credentialHash}` : auth.datasetId;
+    const credentialHash = await digest(auth.format === 'passphrase' ? `${phraseDomain}:${auth.key}` : auth.key);
+    const datasetId = auth.format === 'passphrase' ? `${phrasePrefix}-${credentialHash}` : auth.datasetId;
     const dataset = await db.prepare('SELECT id FROM datasets WHERE id = ? AND credential_hash = ?')
       .bind(datasetId, credentialHash).first();
     if (!dataset) return json({ error: 'Invalid sync credentials.' }, 401);

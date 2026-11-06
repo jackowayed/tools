@@ -3,8 +3,8 @@
 The pilot syncs weigh-ins, edits, deletions, birth date, and sex. Unit preference stays
 on each device. There are no accounts and no end-to-end encryption. HTTPS
 protects transport; the Worker and database can read synced health records.
-A generated sync key grants read/write access. The server stores its SHA-256
-hash, while the browser stores the key in IndexedDB for automatic reconnection.
+A generated four-word passphrase grants read/write access. Existing sync keys still work.
+The server stores a domain-separated SHA-256 hash of each passphrase, while the browser stores the credential in IndexedDB for automatic reconnection.
 Do not log Authorization headers or sync request/response bodies.
 
 ## Run locally
@@ -21,7 +21,7 @@ Local development state lives in `../.tools-sync-state`, outside the static
 asset directory, so SQLite writes do not trigger Wrangler’s asset watcher.
 
 Open `http://localhost:8787/baby-weight.html`. Create sync on one browser profile,
-copy its key, and connect from a second profile. Tabs within one profile share
+copy its passphrase, and connect from a second profile. Tabs within one profile share
 local storage. Use HTTP localhost or HTTPS; WebCrypto and Web Locks require a
 secure context. Serve the page with its adjacent JavaScript modules rather than
 opening it with `file://`.

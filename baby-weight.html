@@ -731,15 +731,16 @@
   <div class="settings-note" id="settingsNote">Saved automatically in this browser. Percentiles need both birth date and sex (WHO weight-for-age, 0–5 years).</div>
 <div id="syncCard">
   <h2>Sync between devices</h2>
-  <p class="settings-note">Create a sync key here, then paste it on another device. Connecting combines this browser’s weigh-ins with that log; the synced birth date, sex, and diaper weight take precedence.</p>
+  <p class="settings-note">Create sync here, then enter its four-word passphrase on another device. Connecting combines this browser’s weigh-ins with that log; the synced birth date, sex, and diaper weight take precedence.</p>
   <p class="settings-note">If devices edit the same weigh-in, the last edit received by the server wins. Deleting a weigh-in takes precedence over edits.</p>
-  <label for="syncKey">Sync key</label>
-  <input id="syncKey" type="password" autocomplete="off" spellcheck="false" autocapitalize="off" placeholder="Paste an existing sync key" style="width:100%;box-sizing:border-box;margin:8px 0">
+  <p class="settings-note">Keep your passphrase private: it grants access to your weight log. Existing sync keys still work.</p>
+  <label for="syncKey">Sync passphrase (or existing key)</label>
+  <input id="syncKey" type="password" autocomplete="off" spellcheck="false" autocapitalize="off" placeholder="Four words separated by spaces" style="width:100%;box-sizing:border-box;margin:8px 0">
   <div style="display:flex;gap:8px;flex-wrap:wrap">
     <button type="button" id="syncCreate">Create sync</button>
     <button type="button" id="syncConnect">Connect existing sync</button>
-    <button type="button" id="syncCopy" hidden>Copy key</button>
-    <button type="button" id="syncShow">Show key</button>
+    <button type="button" id="syncCopy" hidden>Copy</button>
+    <button type="button" id="syncShow">Show</button>
     <button type="button" id="syncDisconnect" hidden>Disconnect</button>
     <button type="button" id="syncRetry" hidden>Sync now</button>
   </div>
@@ -752,7 +753,7 @@
 <dialog id="resetDialog" aria-labelledby="resetTitle" aria-describedby="resetDescription resetKeyReminder">
   <h2 id="resetTitle">Delete &amp; Reset Client</h2>
   <p id="resetDescription">Permanently clear this client’s saved weigh-ins, birth date, sex, preferences, pending changes, and sync connection. Server data will remain unchanged.</p>
-  <p id="resetKeyReminder"><strong>Save your sync key before continuing if you want to access your server data again.</strong> The key will be removed from this client and cannot be recovered here. Cancel to copy it from Settings.</p>
+  <p id="resetKeyReminder"><strong>Save your sync passphrase or key before continuing if you want to access your server data again.</strong> The credential will be removed from this client and cannot be recovered here. Cancel to copy it from Settings.</p>
   <label for="resetConfirmation">Type “delete” to confirm (case insensitive)</label>
   <input id="resetConfirmation" type="text" autocomplete="off" autocapitalize="off" spellcheck="false">
   <p id="resetError" role="alert"></p>
@@ -1671,12 +1672,12 @@ syncConnectEl.addEventListener('click', () => syncAction(async () => { await syn
 syncDisconnectEl.addEventListener('click', () => syncAction(() => localLog.disconnect()));
 syncRetryEl.addEventListener('click', () => syncEngine.run({ force: true }));
 syncCopyEl.addEventListener('click', async () => {
-  try { await navigator.clipboard.writeText(syncKeyEl.value); syncStatusEl.textContent = 'Sync key copied. Keep it private.'; }
-  catch { syncKeyEl.type = 'text'; syncKeyEl.select(); syncStatusEl.textContent = 'Select and copy the sync key.'; }
+  try { await navigator.clipboard.writeText(syncKeyEl.value); syncStatusEl.textContent = 'Sync passphrase or key copied. Keep it private.'; }
+  catch { syncKeyEl.type = 'text'; syncKeyEl.select(); syncStatusEl.textContent = 'Select and copy the sync passphrase or key.'; }
 });
 document.getElementById('syncShow').addEventListener('click', ev => {
   syncKeyEl.type = syncKeyEl.type === 'password' ? 'text' : 'password';
-  ev.target.textContent = syncKeyEl.type === 'password' ? 'Show key' : 'Hide key';
+  ev.target.textContent = syncKeyEl.type === 'password' ? 'Show' : 'Hide';
 });
 
 const resetDialog = document.getElementById('resetDialog');
@@ -1716,7 +1717,7 @@ resetConfirm.addEventListener('click', async () => {
 try {
   // Leave legacy keys intact as a backup; IndexedDB marks migration atomically.
   localLog = await LocalLog.open({ legacy: () => ({ entries: load(), settings: loadSettings() }) });
-  syncEngine = new SyncEngine(localLog, { onStatus: message => {
+  syncEngine = new SyncEngine(localLog, { createOptions: { credentialFormat: 'passphrase' }, onStatus: message => {
     syncMessage = message;
     void refreshFromStorage().catch(error => { errEl.textContent = error.message; });
   } });

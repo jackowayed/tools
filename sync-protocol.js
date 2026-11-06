@@ -7,9 +7,12 @@ const ID = /^[A-Za-z0-9_-]{1,100}$/;
 const KEY = /^bw1\.([a-f0-9-]{36})\.([a-f0-9]{64})$/;
 
 export function parseKey(key) {
-  const match = typeof key === 'string' && KEY.exec(key.trim());
-  if (!match) throw new Error('Invalid sync key. Paste the complete key.');
-  return { key: match[0], datasetId: match[1] };
+  if (typeof key !== 'string' || key.length > 256) throw new Error('Enter the four-word sync passphrase or an existing weight sync key.');
+  const match = KEY.exec(key.trim());
+  if (match) return { key: match[0], datasetId: match[1] };
+  const phrase = key.trim().toLowerCase().replace(/\s+/g, ' ');
+  if (!/^[a-z]+(?:-[a-z]+)*(?: [a-z]+(?:-[a-z]+)*){3}$/.test(phrase)) throw new Error('Enter all four words, separated by spaces, or paste an existing weight sync key.');
+  return { key: phrase, datasetId: null, format: 'passphrase' };
 }
 
 export function validBirth(value) {

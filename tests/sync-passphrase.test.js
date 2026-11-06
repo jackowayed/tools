@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { generatePassphrase } from '../sync-passphrase.js';
 import { parseKey } from '../breastfeeding-protocol.js';
+import { parseKey as parseWeightKey } from '../sync-protocol.js';
 import { startBackend } from './fixture.js';
 
 test('four independent unbiased word selections use the complete EFF list', async () => {
@@ -45,7 +46,16 @@ test('real server authenticates phrases, stores only hashes, and supports legacy
     assert.equal((await api('nursing-sync', 'pull', { afterSeq: 0 }, key.toUpperCase().replaceAll(' ', '   '))).status, 200);
     assert.equal((await api('nursing-sync', 'pull', { afterSeq: 0 }, 'incorrect words cannot authenticate')).status, 401);
     assert.equal((await api('sync', 'pull', { afterSeq: 0 }, key)).status, 401);
-    assert.equal((await api('sync', 'create', { credentialFormat: 'passphrase' })).status, 400);
+    const weight = await api('sync', 'create', { credentialFormat: 'passphrase' });
+    assert.equal(weight.status, 201);
+    const weightAuth = await weight.json();
+    assert.equal(parseWeightKey(weightAuth.key).format, 'passphrase');
+    assert.equal(parseWeightKey('  ACORN  basket coral drift ').key, 'acorn basket coral drift');
+    assert.equal((await api('sync', 'pull', { afterSeq: 0 }, weightAuth.key.toUpperCase())).status, 200);
+    assert.equal((await api('nursing-sync', 'pull', { afterSeq: 0 }, weightAuth.key)).status, 401);
+    const weightStored = await db.prepare('SELECT * FROM datasets WHERE id = ?').bind(weightAuth.datasetId).first();
+    assert.ok(!JSON.stringify(weightStored).includes(weightAuth.key));
+    assert.notEqual(weightAuth.datasetId, datasetId);
     for (const [route, prefix] of [['nursing-sync', 'nf1.'], ['sync', 'bw1.']]) {
       const legacy = await (await api(route, 'create')).json();
       assert.ok(legacy.key.startsWith(prefix));

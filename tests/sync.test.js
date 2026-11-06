@@ -483,3 +483,19 @@ test('end to end: edit at batch and quota boundary stays whole and failed next e
   assert.equal(visibleState(local).entries[0].id, original.entryId);
   assert.equal(visibleState(local).entries[0].kg, 5);
 });
+
+test('weight passphrases create, join, reconnect and sync weigh-ins across devices', async () => {
+  const local = await log(), remote = await log();
+  const engine = new SyncEngine(local, { fetcher, createOptions: { credentialFormat: 'passphrase' } });
+  const phrase = await engine.create();
+  assert.equal(phrase.split(' ').length, 4);
+  await local.addWeighIn(fields(add('phrase-entry')));
+  await engine.run({ force: true });
+  const other = new SyncEngine(remote, { fetcher });
+  await other.connect(phrase.toUpperCase().replaceAll(' ', '   '));
+  await other.run({ force: true });
+  assert.equal(visibleState(await remote.read()).entries[0].id, 'phrase-entry');
+  await remote.disconnect();
+  await other.connect(phrase);
+  assert.equal((await remote.read()).sync.enabled, true);
+});
