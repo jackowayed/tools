@@ -2,7 +2,7 @@
 export const VERSION = 2;
 export const MAX_BATCH = 50;
 export const PAGE_SIZE = 100;
-export const MAX_OPERATIONS = 10000;
+export const MAX_OPERATIONS = 50000;
 const ID = /^[A-Za-z0-9_-]{1,100}$/;
 const KEY = /^bw1\.([a-f0-9-]{36})\.([a-f0-9]{64})$/;
 

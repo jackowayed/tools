@@ -91,7 +91,7 @@ test('D1: duplicate entry import is accepted, changed entry is rejected, and quo
   const credential = await create(); const original = add();
   await api('append', { ops: [original, { ...original, opId: crypto.randomUUID() }] }, credential);
   assert.equal((await api('append', { ops: [add(original.entryId, 4)] }, credential)).status, 409);
-  await db.prepare('UPDATE datasets SET operation_count = 10000 WHERE id = ?').bind(credential.split('.')[1]).run();
+  await db.prepare('UPDATE datasets SET operation_count = 50000 WHERE id = ?').bind(credential.split('.')[1]).run();
   assert.equal((await api('append', { ops: [original] }, credential)).status, 200);
   assert.equal((await api('append', { ops: [add()] }, credential)).status, 413);
 });
@@ -407,7 +407,7 @@ test('D1: an edit fits the final batch and quota slot without a half replacement
   const credential = await create(), original = add('quota-edit');
   await api('append', { ops: [original] }, credential);
   const edit = newOperation('update-entry', { ...fields(original), kg: 4 });
-  await db.prepare('UPDATE datasets SET operation_count = 9950 WHERE id = ?').bind(credential.split('.')[1]).run();
+  await db.prepare('UPDATE datasets SET operation_count = 49950 WHERE id = ?').bind(credential.split('.')[1]).run();
   const batch = [...Array.from({ length: 49 }, () => add()), edit];
   assert.equal((await api('append', { ops: batch }, credential)).status, 200);
   assert.equal((await api('append', { ops: [edit] }, credential)).status, 200, 'retry at quota remains idempotent');
@@ -467,7 +467,7 @@ test('end to end: edit at batch and quota boundary stays whole and failed next e
   for (let i = 0; i < 49; i++) await a.mutate('set-setting', { field: 'sex', value: i % 2 ? 'male' : 'female' });
   await a.replaceEntry(original.entryId, { ...fields(original), kg: 4, clothed: true });
   assert.equal((await a.read()).pending.length, 50);
-  await db.prepare('UPDATE datasets SET operation_count = 9950 WHERE id = ?').bind(credential.split('.')[1]).run();
+  await db.prepare('UPDATE datasets SET operation_count = 49950 WHERE id = ?').bind(credential.split('.')[1]).run();
   await engineA.cycle(); await engineB.cycle();
   const remote = visibleState(await b.read()).entries;
   assert.equal(remote.length, 1); assert.equal(remote[0].id, original.entryId);
@@ -535,4 +535,30 @@ test('connect commits the first remote page and cursor together with the associa
   assert.equal(visibleState(state).settings.sex, 'female');
   assert.equal(state.entries[0].id, remoteEntry.entryId);
   assert.deepEqual(state.pending, []);
+});
+
+test('capacity migration raises the old cap and reports usage on pull/append, including retries', async () => {
+  const credential = await create();
+  const op = add();
+  await db.prepare('UPDATE datasets SET operation_count = 10000 WHERE id = ?').bind(credential.split('.')[1]).run();
+  const response = await api('append', { ops: [op] }, credential);
+  assert.equal(response.status, 200);
+  assert.deepEqual((await response.json()).usage, { count: 10001, limit: 50000 });
+  const retry = await (await api('append', { ops: [op] }, credential)).json();
+  assert.deepEqual(retry.usage, { count: 10001, limit: 50000 });
+  assert.deepEqual((await (await api('pull', { afterSeq: 0 }, credential)).json()).usage, retry.usage);
+});
+
+test('rate limiting returns a bounded Retry-After header for authenticated routes', async () => {
+  const credential = await create(), ip = crypto.randomUUID();
+  let response;
+  // Cross a window boundary safely if this test happens to start at its end.
+  for (let i = 0; i < 241; i++) {
+    response = await api('pull', { afterSeq: 0 }, credential, ip);
+    if (response.status === 429) break;
+  }
+  assert.equal(response.status, 429);
+  const seconds = Number(response.headers.get('retry-after'));
+  assert.ok(Number.isInteger(seconds) && seconds >= 1 && seconds <= 60);
+  assert.equal(response.headers.get('cache-control'), 'no-store');
 });

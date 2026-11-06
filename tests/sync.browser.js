@@ -19,7 +19,7 @@ before(async () => {
         res.end(Buffer.from(await response.arrayBuffer()));
       } else {
         const name = req.url.slice(1);
-        if (!['baby-weight.html', 'sync-client.js', 'sync-protocol.js'].includes(name)) { res.writeHead(404); res.end(); return; }
+        if (!['baby-weight.html', 'sync-client.js', 'sync-protocol.js', 'weight-graphs.js', 'html-utils.js'].includes(name)) { res.writeHead(404); res.end(); return; }
         res.setHeader('Content-Type', name.endsWith('.js') ? 'text/javascript' : 'text/html');
         res.end(await readFile(new URL('../' + name, import.meta.url)));
       }
@@ -648,4 +648,53 @@ test('Chromium: collapsed weight graphs use all naked readings and respond to se
   assert.equal(await page.locator('#weightGraphs').evaluate(el => el.innerHTML.includes('NaN')), false);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   await context.close();
+});
+
+test('Chromium: catch-up progress and capacity survive reload and continue automatically while visible', async () => {
+  const context = await browser.newContext();
+  try {
+    const p = await context.newPage();
+    p.on('pageerror', error => errors.push(error.message));
+    await p.clock.install();
+    const requested = [];
+    const records = Array.from({ length: 650 }, (_, i) => ({ seq: i + 1,
+      op: { v: 2, opId: `history-${i}`, type: 'set-setting', field: 'diaperGrams', value: i % 1000 } }));
+    await p.route('**/api/sync/pull', async route => {
+      const { afterSeq } = route.request().postDataJSON();
+      requested.push(afterSeq);
+      const page = records.filter(record => record.seq > afterSeq).slice(0, 100);
+      const cursor = page.at(-1)?.seq ?? afterSeq;
+      await route.fulfill({ json: { v: 2, records: page, cursor, hasMore: cursor < records.length,
+        usage: { count: 650, limit: 800 } } });
+    });
+    await p.goto(origin + '/baby-weight.html');
+    await p.waitForFunction(() => !document.querySelector('#addReading').disabled);
+    await p.locator('#syncKey').fill(`bw1.${'a'.repeat(36)}.${'b'.repeat(64)}`);
+    await p.locator('#syncConnect').click();
+    await p.waitForFunction(() => document.querySelector('#syncStatus').textContent.includes('600 changes downloaded'));
+    assert.match(await p.locator('#syncCapacity').textContent(), /nearly full.*650 of 800/);
+    const beforeReload = requested.length;
+    await p.reload();
+    await p.waitForFunction(() => document.querySelector('#syncStatus').textContent.includes('600 changes downloaded'));
+    await p.locator('#syncRetry').click();
+    assert.equal(requested.length, beforeReload, 'reload and manual retry preserve chunk pacing');
+    await p.evaluate(() => Object.defineProperty(document, 'hidden', { configurable: true, value: true }));
+    await p.clock.runFor(16000);
+    assert.equal(requested.length, beforeReload, 'background polling yields');
+    await p.evaluate(() => { delete document.hidden; });
+    // The next existing foreground interval resumes without clicking Sync now.
+    await p.clock.runFor(5000);
+    await synced(p);
+    assert.equal(requested[beforeReload], 600);
+    const state = await p.evaluate(async () => {
+      const { LocalLog } = await import('/sync-client.js');
+      const log = await LocalLog.open({ broadcast: false });
+      try { return (await log.read()).sync; } finally { log.close(); }
+    });
+    assert.equal(state.cursor, 650);
+    assert.equal(state.downloaded, 650);
+    assert.equal(state.catchingUp, false);
+    assert.match(await p.locator('#syncCapacity').textContent(), /nearly full/);
+    assert.deepEqual(errors, []);
+  } finally { await context.close(); }
 });

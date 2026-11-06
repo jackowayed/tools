@@ -1,8 +1,8 @@
 import { generatePassphrase } from '../sync-passphrase.js';
 import { VERSION, MAX_BATCH, PAGE_SIZE, canonicalOperation, entryPayload, parseKey } from '../sync-protocol.js';
 
-const json = (body, status = 200) => new Response(JSON.stringify(body), {
-  status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
+const json = (body, status = 200, headers = {}) => new Response(JSON.stringify(body), {
+  status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store', ...headers },
 });
 const hex = bytes => Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
 async function digest(value) {
@@ -30,7 +30,7 @@ async function readBody(request) {
   return body;
 }
 
-async function rateAllowed(db, request, creating) {
+async function retryAfterSeconds(db, request, creating) {
   const now = Math.floor(Date.now() / 1000);
   const span = creating ? 3600 : 60;
   const window = Math.floor(now / span) * span;
@@ -41,7 +41,7 @@ async function rateAllowed(db, request, creating) {
       window = excluded.window RETURNING count`).bind(key, window).first();
   // Bound retention without logging addresses or keeping historical windows.
   await db.prepare('DELETE FROM sync_rate_limits WHERE window < ?').bind(now - 7200).run();
-  return result.count <= (creating ? 5 : 120);
+  return result.count <= (creating ? 5 : 120) ? 0 : window + span - now;
 }
 
 export async function handleSync(request, env, protocol = { canonicalOperation, parseKey }, prefix = '/api/sync', keyPrefix = 'bw1') {
@@ -55,7 +55,8 @@ export async function handleSync(request, env, protocol = { canonicalOperation, 
   try {
     const db = env.SYNC_DB;
     const creating = path.endsWith('/create');
-    if (!await rateAllowed(db, request, creating)) return json({ error: 'Too many requests. Try again later.' }, 429);
+    const retryAfter = await retryAfterSeconds(db, request, creating);
+    if (retryAfter) return json({ error: 'Too many requests. Try again after the retry window.' }, 429, { 'retry-after': String(retryAfter) });
     let body;
     try { body = await readBody(request); } catch (error) { return json({ error: error.message }, 400); }
     const phraseDomain = keyPrefix === 'nf1' ? 'nursing-passphrase-v1' : 'weight-passphrase-v1';
@@ -98,10 +99,15 @@ export async function handleSync(request, env, protocol = { canonicalOperation, 
 
     if (path.endsWith('/pull')) {
       if (!Number.isSafeInteger(body.afterSeq) || body.afterSeq < 0) return json({ error: 'Invalid cursor.' }, 400);
-      const { results } = await db.prepare('SELECT seq, payload FROM operations WHERE dataset_id = ? AND seq > ? ORDER BY seq LIMIT ?')
-        .bind(dataset.id, body.afterSeq, PAGE_SIZE + 1).all();
-      const records = results.slice(0, PAGE_SIZE).map(row => ({ seq: row.seq, op: JSON.parse(row.payload) }));
-      return json({ v: VERSION, records, cursor: records.at(-1)?.seq ?? body.afterSeq, hasMore: results.length > PAGE_SIZE });
+      // Read capacity and the page in one snapshot, including concurrent appends.
+      const [history, capacity] = await db.batch([
+        db.prepare('SELECT seq, payload FROM operations WHERE dataset_id = ? AND seq > ? ORDER BY seq LIMIT ?')
+          .bind(dataset.id, body.afterSeq, PAGE_SIZE + 1),
+        db.prepare('SELECT operation_count AS count, operation_limit AS "limit" FROM datasets WHERE id = ?').bind(dataset.id),
+      ]);
+      const records = history.results.slice(0, PAGE_SIZE).map(row => ({ seq: row.seq, op: JSON.parse(row.payload) }));
+      return json({ v: VERSION, records, cursor: records.at(-1)?.seq ?? body.afterSeq,
+        hasMore: history.results.length > PAGE_SIZE, usage: capacity.results[0] });
     }
     let ops;
     try {
@@ -118,8 +124,9 @@ export async function handleSync(request, env, protocol = { canonicalOperation, 
         .bind(dataset.id, op.opId));
     }
     // D1 executes this fixed batch transactionally. No JS read/modify/write counter.
+    statements.push(db.prepare('SELECT operation_count AS count, operation_limit AS "limit" FROM datasets WHERE id = ?').bind(dataset.id));
     const results = await db.batch(statements);
-    return json({ v: VERSION, assigned: results.filter((_, i) => i % 2 === 1).map(r => r.results[0]) });
+    return json({ v: VERSION, assigned: results.slice(0, -1).filter((_, i) => i % 2 === 1).map(r => r.results[0]), usage: results.at(-1).results[0] });
   } catch (error) {
     const message = String(error.message);
     if (message.includes('op_conflict') || message.includes('entry_conflict'))
