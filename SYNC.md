@@ -1,6 +1,6 @@
 # Baby-weight sync
 
-The pilot syncs weigh-ins, edits, deletions, birth date, and sex. Unit preference stays
+The pilot syncs weigh-ins, edits, deletions, birth date, sex, and diaper weight. Unit preference stays
 on each device. There are no accounts and no end-to-end encryption. HTTPS
 protects transport; the Worker and database can read synced health records.
 A generated four-word passphrase grants read/write access. Existing sync keys still work.
@@ -89,8 +89,10 @@ and stale writes or connection responses cannot restore the old client state.
 Save the sync key before resetting to reconnect to the unchanged server log later.
 
 Before first connection, the journal is local only. Creating sync uploads it,
-including the current birth date and sex. Joining an existing dataset imports
-entries/tombstones but adopts the remote birth date and sex. Setting edits made
+including the current birth date, sex, and diaper weight. Joining an existing dataset imports
+entries/tombstones but adopts the remote birth date, sex, and diaper weight. The first authenticated page,
+its cursor, and the dataset association commit together; invalid or conflicting
+first pages leave the local journal and settings unchanged. Setting edits made
 while authentication is in flight remain pending. Once linked, the browser
 cannot switch datasets. Disconnect retains the association and journals edits
 for a later reconnect; an already-sent request can still finish. Reconnect uses
@@ -240,19 +242,19 @@ response-loss retry, simultaneous independent starts, migration, and validation.
 Run `npm run test:browser:nursing` in addition to the weight-log browser suite.
 
 
-### Four-word nursing passphrase prototype
+### Four-word sync passphrases
 
-New nursing clients request `{credentialFormat: "passphrase"}` when creating sync.
+New nursing and weight clients request `{credentialFormat: "passphrase"}` when creating sync.
 The server chooses four independent words from the bundled 7,776-word EFF large
 wordlist using WebCrypto and rejection sampling (about 51.7 bits of entropy).
 Words may repeat; four dictionary entries contain an internal hyphen. Users copy
 or type the generated phrase, rather than inventing a phrase. Entry is case
 insensitive and repeated whitespace is collapsed. The UI still accepts existing
-long nursing keys. The weight tracker continues using its existing keys.
+long nursing and weight keys.
 
 Only the normalized phrase is sent as the bearer credential over HTTPS. D1 stores
-SHA-256 of `nursing-passphrase-v1:` plus the phrase; the dataset primary key is
-`nf2-` plus that hash, enabling indexed lookup without transmitting a separate ID.
+SHA-256 of `nursing-passphrase-v1:` or `weight-passphrase-v1:` plus the phrase;
+the dataset primary key is `nf2-` or `bw2-` plus that hash, respectively, enabling indexed lookup without transmitting a separate ID.
 Creation uses an atomic insert and retries on collision, never linking a newly
 created client to another user's existing log. No database migration is required.
 The full phrase stays in browser IndexedDB for reconnection, like the previous
@@ -261,6 +263,6 @@ key. Anyone with the phrase can access the log; it has less entropy than the old
 
 Deploy the Worker before or together with the client. Requests without the format
 option still receive legacy `nf1`/`bw1` keys, so existing clients keep working.
-Existing datasets are not automatically rekeyed; this prototype changes newly
-created nursing sync credentials only. The bundled wordlist retains its EFF
+Existing datasets are not automatically rekeyed; passphrases apply to newly
+created sync credentials only. The bundled wordlist retains its EFF
 source and Creative Commons attribution in `sync-passphrase.js`.

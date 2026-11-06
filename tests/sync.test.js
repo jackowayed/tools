@@ -499,3 +499,40 @@ test('weight passphrases create, join, reconnect and sync weigh-ins across devic
   await other.connect(phrase);
   assert.equal((await remote.read()).sync.enabled, true);
 });
+
+test('connect rejects malformed or conflicting history without binding or discarding local settings', async () => {
+  const local = await log(undefined, {
+    entries: [{ id: 'shared', ts: 1700000000000, kg: 3 }],
+    settings: { sex: 'male', birth: '2025-01-01' },
+  });
+  const before = await local.read();
+  const credential = key();
+  const conflicting = add('shared', 4);
+  for (const response of [
+    { v: 2 },
+    { ...page([]), cursor: 1 },
+    page([{ seq: 1, op: { ...add(), kg: -1 } }]),
+    page([{ seq: 1, op: newOperation('set-setting', { field: 'sex', value: 'female' }) },
+      { seq: 2, op: conflicting }]),
+  ]) {
+    const engine = new SyncEngine(local, { fetcher: async () => Response.json(response) });
+    await assert.rejects(engine.connect(credential));
+    assert.deepEqual(await local.read(), before);
+  }
+});
+
+test('connect commits the first remote page and cursor together with the association', async () => {
+  const local = await log(undefined, { settings: { sex: 'male' } });
+  const credential = key(), remoteEntry = add();
+  const first = page([{ seq: 5, op: remoteEntry },
+    { seq: 7, op: newOperation('set-setting', { field: 'sex', value: 'female' }) }], 0, true);
+  const engine = new SyncEngine(local, { fetcher: async () => Response.json(first) });
+  await engine.connect(credential);
+  const state = await local.read();
+  assert.equal(state.sync.key, credential);
+  assert.equal(state.sync.cursor, 7);
+  assert.equal(state.sync.syncedAt, null);
+  assert.equal(visibleState(state).settings.sex, 'female');
+  assert.equal(state.entries[0].id, remoteEntry.entryId);
+  assert.deepEqual(state.pending, []);
+});

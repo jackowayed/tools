@@ -249,7 +249,7 @@ test('Chromium: migration, multi-tab adds, two-device sync, offline deletion, re
   await Promise.all([add(a, 3.1), add(tab, 3.2)]);
   await rows(a, 3); await rows(tab, 3);
   await a.locator('#syncCreate').click(); await synced(a);
-  const credential = await a.locator('#syncKey').inputValue(); assert.match(credential, /^bw1\./);
+  const credential = await a.locator('#syncKey').inputValue(); assert.match(credential, /^[a-z]+(?:-[a-z]+)*(?: [a-z]+(?:-[a-z]+)*){3}$/);
   await b.locator('#syncKey').fill(credential); await b.locator('#syncConnect').click(); await synced(b); await rows(b, 3);
   await first.setOffline(true);
   await add(tab, 3.3); await rows(a, 4);
@@ -518,7 +518,7 @@ test('Chromium: reset requires typed confirmation, clears other tabs and can rec
       localStorage.setItem('other-tool', 'keep');
     });
     await a.locator('#resetClient').click();
-    assert.match(await a.locator('#resetKeyReminder').innerText(), /Save your sync key/);
+    assert.match(await a.locator('#resetKeyReminder').innerText(), /Save your sync passphrase or key/);
     assert.equal(await a.locator('#resetConfirm').isDisabled(), true);
     await a.locator('#resetConfirmation').fill('wrong');
     assert.equal(await a.locator('#resetConfirm').isDisabled(), true);

@@ -50,6 +50,29 @@ function applyOperation(state, op, seq = 0) {
   }
 }
 
+function pageRecords(afterSeq, page) {
+  if (page.v !== VERSION || !Array.isArray(page.records) || typeof page.hasMore !== 'boolean') throw new Error('Invalid sync response.');
+  let last = afterSeq;
+  const records = page.records.map(record => {
+    if (!Number.isSafeInteger(record.seq) || record.seq <= last) throw new Error('Invalid sync sequence.');
+    last = record.seq;
+    return { seq: record.seq, op: canonicalOperation(record.op) };
+  });
+  if (page.cursor !== last || (page.hasMore && !records.length)) throw new Error('Invalid sync cursor.');
+  return records;
+}
+
+function applyRecords(state, key, page, records) {
+  if (state.sync?.key !== key) throw new Error('Dataset changed.');
+  for (const record of records) {
+    if (record.seq > state.sync.cursor) applyOperation(state, record.op, record.seq);
+  }
+  // Overlapping pages must never decrease the cursor.
+  state.sync.cursor = Math.max(state.sync.cursor, page.cursor);
+  if (!page.hasMore) state.sync.syncedAt = Date.now();
+  return state;
+}
+
 export function visibleState(state) {
   const deleted = new Set(state.tombstones);
   const settings = { ...DEFAULT_SETTINGS, ...state.settings };
@@ -166,8 +189,9 @@ export class LocalLog {
     if (!['kg', 'lb'].includes(unit)) throw new Error('Invalid unit.');
     return this.change(state => { state.settings.unit = unit; return state; });
   }
-  link(key, { created = false, discardSettingIds = null } = {}) {
+  link(key, { created = false, discardSettingIds = null, initialPage = null } = {}) {
     const auth = parseKey(key);
+    const records = initialPage === null ? null : pageRecords(0, initialPage);
     return this.change(state => {
       if (state.sync && state.sync.key !== auth.key) throw new Error('This browser is already linked to a different dataset. Reconnect with its original key.');
       if (!state.sync) {
@@ -181,6 +205,9 @@ export class LocalLog {
         state.sync = { ...auth, cursor: 0, syncedAt: null };
       }
       state.sync.enabled = true;
+      // Binding, replacing initial settings, and importing the authenticated page
+      // must commit together. A conflict leaves the local-only journal intact.
+      if (records) applyRecords(state, auth.key, initialPage, records);
       return state;
     });
   }
@@ -192,25 +219,8 @@ export class LocalLog {
     return this.change(state => { if (state.sync) state.sync.enabled = false; return state; });
   }
   applyPage(key, afterSeq, page) {
-    if (page.v !== VERSION || !Array.isArray(page.records) || typeof page.hasMore !== 'boolean') throw new Error('Invalid sync response.');
-    let last = afterSeq;
-    const records = page.records.map(record => {
-      if (!Number.isSafeInteger(record.seq) || record.seq <= last) throw new Error('Invalid sync sequence.');
-      last = record.seq;
-      return { seq: record.seq, op: canonicalOperation(record.op) };
-    });
-    if (page.cursor !== last || (page.hasMore && !records.length)) throw new Error('Invalid sync cursor.');
-    return this.change(state => {
-      if (state.sync?.key !== key) throw new Error('Dataset changed.');
-      for (const record of records) {
-        if (record.seq <= state.sync.cursor) continue;
-        applyOperation(state, record.op, record.seq);
-      }
-      // Another tab may already have committed this page or a later one.
-      state.sync.cursor = Math.max(state.sync.cursor, page.cursor);
-      if (!page.hasMore) state.sync.syncedAt = Date.now();
-      return state;
-    });
+    const records = pageRecords(afterSeq, page);
+    return this.change(state => applyRecords(state, key, page, records));
   }
   acknowledge(key, sent, response) {
     if (response.v !== VERSION || !Array.isArray(response.assigned) || response.assigned.length !== sent.length) throw new Error('Invalid append acknowledgement.');
@@ -259,8 +269,8 @@ export class SyncEngine {
     const state = await this.log.read();
     if (state.sync && state.sync.key !== auth.key) throw new Error('Use this browser’s original sync key. Switching datasets is not supported.');
     // Authenticate before binding local work or discarding initial local settings.
-    await this.request('pull', { afterSeq: 0 }, auth.key);
-    await this.log.link(auth.key, { discardSettingIds: state.pending.filter(op => op.type === 'set-setting').map(op => op.opId) });
+    const initialPage = await this.request('pull', { afterSeq: 0 }, auth.key);
+    await this.log.link(auth.key, { initialPage, discardSettingIds: state.pending.filter(op => op.type === 'set-setting').map(op => op.opId) });
   }
   async pull(key) {
     for (let pageNumber = 0; pageNumber < 200; pageNumber++) {
