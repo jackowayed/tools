@@ -1,4 +1,4 @@
-import { LocalLog, SyncEngine } from './sync-client.js';
+import { LocalLog, SyncEngine, recordPullProgress, recordUsage } from './sync-client.js';
 import { VERSION, canonicalOperation, newOperation, parseKey } from './breastfeeding-protocol.js';
 import { emptyFeed } from './breastfeeding-timer.js';
 
@@ -113,8 +113,7 @@ export class NursingLog extends LocalLog {
     return this.change(state => {
       if (state.sync?.key !== key) throw new Error('Dataset changed.');
       for (const { op, seq } of records) if (seq > state.sync.cursor) apply(state, op, seq);
-      state.sync.cursor = Math.max(state.sync.cursor, page.cursor);
-      if (!page.hasMore) state.sync.syncedAt = Date.now();
+      recordPullProgress(state.sync, page, records);
       return state;
     });
   }
@@ -125,6 +124,9 @@ export class NursingLog extends LocalLog {
     return this.change(state => {
       if (state.sync?.key !== key) throw new Error('Dataset changed.');
       for (const op of sent) apply(state, op, assigned.get(op.opId));
+      recordUsage(state.sync, response.usage);
+      state.sync.acknowledgedSeq = Math.max(state.sync.acknowledgedSeq ?? 0, ...assigned.values());
+      if (state.sync.acknowledgedSeq > state.sync.cursor) state.sync.catchingUp = true;
       state.pending = state.pending.filter(op => !assigned.has(op.opId));
       return state;
     });

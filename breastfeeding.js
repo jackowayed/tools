@@ -1,3 +1,4 @@
+import { catchUpStatus, capacityWarning } from './sync-client.js';
 import { NursingLog, NursingSync, nursingView } from './breastfeeding-sync.js';
 import { emptyFeed, elapsed, switchSide, pause, validateFeed, formatDuration } from './breastfeeding-timer.js';
 
@@ -167,11 +168,13 @@ function renderSync(journal) {
   $('syncNow').hidden = !enabled;
   $('syncCopy').hidden = !linked;
   for (const id of ['syncCreate', 'syncConnect', 'syncDisconnect', 'syncNow']) $(id).disabled = syncBusy;
+  $('syncCapacity').textContent = capacityWarning(journal.sync);
+  $('syncCapacity').hidden = !$('syncCapacity').textContent;
   const waiting = journal.pending.length;
   $('syncStatus').textContent = !enabled
     ? linked ? `Disconnected · ${waiting} actions waiting` : 'Saved on this device · sync is off'
     : !navigator.onLine ? `Offline · ${waiting} actions waiting`
-    : syncMessage || (waiting ? `${waiting} actions waiting to sync` : 'Up to date · checking every 5 seconds');
+    : syncMessage || catchUpStatus(journal.sync) || (waiting ? `${waiting} actions waiting to sync` : 'Up to date · checking every 5 seconds');
 }
 async function syncAction(action) {
   if (!db || syncBusy) return;

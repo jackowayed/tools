@@ -62,14 +62,45 @@ function pageRecords(afterSeq, page) {
   return records;
 }
 
+// Shared by weight and nursing; metadata commits with the page/ack it describes.
+export function recordUsage(sync, usage) {
+  if (usage === undefined) return; // Older Workers do not report capacity.
+  if (!Number.isSafeInteger(usage?.count) || usage.count < 0
+    || !Number.isSafeInteger(usage.limit) || usage.limit < 1 || usage.count > usage.limit)
+    throw new Error('Invalid sync capacity.');
+  sync.usage = { count: Math.max(sync.usage?.count ?? 0, usage.count), limit: usage.limit };
+}
+
+export function recordPullProgress(sync, page, records) {
+  recordUsage(sync, page.usage);
+  sync.downloaded = (sync.downloaded ?? 0) + records.filter(record => record.seq > sync.cursor).length;
+  // A delayed, overlapping page must not undo newer catch-up progress.
+  if (page.cursor >= sync.cursor) {
+    sync.catchingUp = page.hasMore || page.cursor < (sync.acknowledgedSeq ?? 0);
+    if (!sync.catchingUp) sync.syncedAt = Date.now();
+  }
+  sync.cursor = Math.max(sync.cursor, page.cursor);
+}
+
+export function catchUpStatus(sync) {
+  return sync?.catchingUp ? `Catching up · ${(sync.downloaded ?? 0).toLocaleString()} changes downloaded` : '';
+}
+
+export function capacityWarning(sync) {
+  const usage = sync?.usage;
+  if (!usage || usage.count < usage.limit * 0.8) return '';
+  const amount = `${usage.count.toLocaleString()} of ${usage.limit.toLocaleString()} sync changes used`;
+  return usage.count >= usage.limit
+    ? `Sync storage full · ${amount}. New changes, including deletions, stay on this device until capacity is increased.`
+    : `Sync storage nearly full · ${amount}. Edits and deletions also use space; deleting readings does not free it.`;
+}
+
 function applyRecords(state, key, page, records) {
   if (state.sync?.key !== key) throw new Error('Dataset changed.');
   for (const record of records) {
     if (record.seq > state.sync.cursor) applyOperation(state, record.op, record.seq);
   }
-  // Overlapping pages must never decrease the cursor.
-  state.sync.cursor = Math.max(state.sync.cursor, page.cursor);
-  if (!page.hasMore) state.sync.syncedAt = Date.now();
+  recordPullProgress(state.sync, page, records);
   return state;
 }
 
@@ -230,6 +261,9 @@ export class LocalLog {
     return this.change(state => {
       if (state.sync?.key !== key) throw new Error('Dataset changed.');
       for (const op of sent) applyOperation(state, op, assigned.get(op.opId));
+      recordUsage(state.sync, response.usage);
+      state.sync.acknowledgedSeq = Math.max(state.sync.acknowledgedSeq ?? 0, ...assigned.values());
+      if (state.sync.acknowledgedSeq > state.sync.cursor) state.sync.catchingUp = true;
       state.pending = state.pending.filter(op => !assigned.has(op.opId));
       // Acknowledging our own writes says nothing about intervening remote operations.
       return state;
@@ -244,13 +278,28 @@ export class SyncEngine {
     this.log = log; this.fetcher = fetcher; this.onStatus = onStatus;
     this.basePath = basePath; this.parseCredential = parseCredential; this.lockName = lockName;
     this.createOptions = createOptions;
-    this.running = null; this.failures = 0; this.nextAttempt = 0;
+    this.running = null; this.failures = 0; this.nextAttempt = 0; this.retryAfter = 0;
   }
   async request(action, body, key) {
+    if (key) {
+      const state = await this.log.read();
+      if (state.sync?.key === key) this.retryAfter = Math.max(this.retryAfter, state.sync.retryAfter ?? 0);
+    }
+    if (Date.now() < this.retryAfter) throw new Error('Sync is waiting for the server’s retry window.');
     const response = await this.fetcher(`${this.basePath}/${action}`, {
       method: 'POST', headers: { 'content-type': 'application/json', ...(key ? { authorization: `Bearer ${key}` } : {}) },
       body: JSON.stringify({ v: VERSION, ...body }), signal: AbortSignal.timeout(15000), cache: 'no-store',
     });
+    if (response.status === 429) {
+      const header = response.headers.get('retry-after');
+      const deadline = header && /^\d+$/.test(header) ? Date.now() + Number(header) * 1000 : Date.parse(header);
+      this.retryAfter = Number.isFinite(deadline) ? Math.max(Date.now(), deadline) : Date.now() + 60000;
+      // The server cooldown survives reload and is shared with other tabs.
+      if (key) await this.log.change(state => {
+        if (state.sync?.key === key) state.sync.retryAfter = Math.max(state.sync.retryAfter ?? 0, this.retryAfter);
+        return state;
+      });
+    }
     let data;
     try { data = await response.json(); } catch { throw new Error('Sync server returned an invalid response.'); }
     if (!response.ok) throw new Error(data.error || `Sync failed (${response.status}).`);
@@ -272,46 +321,61 @@ export class SyncEngine {
     const initialPage = await this.request('pull', { afterSeq: 0 }, auth.key);
     await this.log.link(auth.key, { initialPage, discardSettingIds: state.pending.filter(op => op.type === 'set-setting').map(op => op.opId) });
   }
-  async pull(key) {
-    for (let pageNumber = 0; pageNumber < 200; pageNumber++) {
+  async pull(key, maxPages = 4) {
+    const deadline = Date.now() + 3000;
+    for (let pageNumber = 0; pageNumber < maxPages; pageNumber++) {
       const state = await this.log.read();
       if (!state.sync?.enabled || state.sync.key !== key) return;
       const afterSeq = state.sync.cursor;
       const page = await this.request('pull', { afterSeq }, key);
       await this.log.applyPage(key, afterSeq, page);
-      if (!page.hasMore) return;
+      if (!page.hasMore || Date.now() >= deadline) return;
     }
-    throw new Error('Sync history is too large. Local data was kept.');
+    // More history is ordinary progress. The next cycle resumes at the saved cursor.
   }
   async cycle() {
     const state = await this.log.read();
     if (!state.sync?.enabled) return;
     const key = state.sync.key;
-    this.onStatus('Syncing…');
+    this.onStatus(catchUpStatus(state.sync) || 'Syncing…');
     await this.pull(key);
-    // Bound a cycle so a busy producer cannot monopolize the tab indefinitely.
-    for (let batch = 0; batch < 10; batch++) {
-      const latest = await this.log.read();
-      if (!latest.sync?.enabled || latest.sync.key !== key) return;
-      const sent = latest.pending.slice(0, MAX_BATCH);
-      if (!sent.length) break;
+    const latest = await this.log.read();
+    if (!latest.sync?.enabled || latest.sync.key !== key) return;
+    // Upload between pull chunks, so a long history cannot starve local edits.
+    const sent = latest.pending.slice(0, MAX_BATCH);
+    if (sent.length) {
       const response = await this.request('append', { ops: sent }, key);
       await this.log.acknowledge(key, sent, response);
     }
-    await this.pull(key);
+    await this.pull(key, 1);
+    return this.log.change(current => {
+      if (current.sync?.key === key) {
+        const more = current.sync.catchingUp || current.pending.length > 0;
+        // At most six requests per chunk, then 15 seconds for other devices.
+        current.sync.nextChunkAt = more ? Date.now() + 15000 : 0;
+      }
+      return current;
+    });
   }
   run({ force = false } = {}) {
     if (this.running) return this.running;
-    if (!force && Date.now() < this.nextAttempt) return Promise.resolve();
+    if (Date.now() < this.retryAfter || (!force && Date.now() < this.nextAttempt)) return Promise.resolve();
     this.running = (async () => {
       try {
+        const attempt = async () => {
+          const state = await this.log.read();
+          // Check under the Web Lock: another tab may have just completed a chunk.
+          // Force bypasses transient-error backoff, never pacing or Retry-After.
+          if (!state.sync?.enabled || Date.now() < Math.max(state.sync.retryAfter ?? 0, state.sync.nextChunkAt ?? 0)) return;
+          await this.cycle();
+          this.failures = 0; this.nextAttempt = 0; this.onStatus('');
+        };
         if (globalThis.navigator?.locks) {
-          await navigator.locks.request(this.lockName, { ifAvailable: true }, lock => lock ? this.cycle() : undefined);
-        } else await this.cycle();
-        this.failures = 0; this.nextAttempt = 0; this.onStatus('');
+          await navigator.locks.request(this.lockName, { ifAvailable: true }, lock => lock ? attempt() : undefined);
+        } else await attempt();
       } catch (error) {
         this.failures++;
-        this.nextAttempt = Date.now() + Math.min(300000, 2000 * 2 ** Math.min(this.failures, 7)) * (0.8 + Math.random() * 0.4);
+        this.nextAttempt = Math.max(this.retryAfter, Date.now() + Math.min(300000, 2000 * 2 ** Math.min(this.failures, 7)) * (0.8 + Math.random() * 0.4));
         this.onStatus(error.message);
       } finally { this.running = null; }
     })();

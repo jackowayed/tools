@@ -48,8 +48,11 @@ existing tools Worker; other tools and proxy routes retain their behavior.
 `migrations`, tests, dependencies, and this document are excluded from static
 assets. No remote database is created by installing dependencies or running tests.
 
-Deploy the Worker and client assets together for protocol v2. No additional D1
-migration is needed for updates: each edit is stored in the existing operation log.
+Deploy the Worker and client assets together for protocol v2. Migration
+`0002_sync_capacity.sql` raises the per-dataset limit to 50,000 without changing
+existing history or credentials. Apply all migrations before deploying the updated
+Worker; its capacity responses require the new column. Each edit is stored in the
+existing operation log.
 The Worker rejects v1 request envelopes before accepting operations and tells old
 clients to reload. Existing keys and v1 log operations remain valid. The client
 upgrades the existing IndexedDB database to version 2 without clearing data;
@@ -141,23 +144,40 @@ reconnects. Pending local settings overlay accepted settings until acknowledged.
 The same last-accepted-write policy applies to edits of a weigh-in; it does not
 merge individual weight, time, feed, and clothing fields from competing edits.
 
-Each cycle pulls, pushes up to ten batches, then pulls again. Applying a page
-and advancing its cursor is one local transaction. Acknowledgements remove only
-the named operations and never advance the pull cursor. Overlapping pages are
-safe and cannot decrease the cursor. Successful acknowledgements also fold in
-accepted setting and edit versions so delayed older pages cannot revert them. Invalid
-responses/conflicts stop that cycle and preserve pending work.
+Each cycle pulls up to four pages (yielding sooner after three seconds), uploads
+one batch of up to 50 pending operations, then pulls one final page. This bounds
+network work to six requests per cycle and lets offline edits upload while a large
+history is still downloading. Applying a page, its download count, and cursor is
+one local transaction. Acknowledgements remove only named operations and never
+advance the pull cursor. Overlapping pages cannot decrease progress or count
+records twice. Accepted edit/setting versions prevent older downloaded pages
+from overwriting an acknowledged upload.
 
-The page retries on local mutation, online/visible events, and while visible
-(pending work checked every five seconds; otherwise pulls about every thirty
-seconds). Failures use exponential backoff with jitter up to approximately six
-minutes. “Sync now” bypasses backoff. Background tabs may be throttled by the
-browser.
+If history or uploads remain, the next chunk waits at least 15 seconds. That
+cooldown is persisted across reloads and checked under the Web Lock across tabs.
+Visible pages check for work every five seconds; hidden pages pause polling and
+resume when visible. “Catching up” shows the number of downloaded operations,
+not the global server sequence (which can have gaps). “Up to date” requires
+reaching the end of the history and clearing pending uploads. Existing installations
+start their download counter from the next page; it is not a lifetime record count.
+
+The server returns `Retry-After` on HTTP 429. The client supports both seconds and
+HTTP dates, persists the deadline for linked datasets, and resumes from the last
+committed cursor. “Sync now” and online/visible events bypass ordinary network-error
+backoff but respect server cooldowns and chunk pacing. Other failures use exponential
+backoff with jitter up to approximately six minutes. Multiple devices sharing an IP
+can still exhaust the shared rate limit; their committed progress is retained.
+
+Pull and append responses optionally include `usage: {count, limit}`. The browser
+warns at 80% capacity and explains that edits/deletions consume slots and do not
+free history. Capacity warnings remain separate from sync progress and errors.
+Older clients ignore the additional fields; new clients tolerate older responses
+without capacity information. Weight and nursing share this scheduling behavior.
 
 ## Limits and retention
 
 - 32 KiB maximum request body, 50 operations per append, 100 records per pull.
-- 10,000 accepted operations per dataset, enforced transactionally. Retries are
+- 50,000 accepted operations per dataset, enforced transactionally. Retries are
   accepted at the limit; new operations, including deletions, are retained
   locally with a quota error until an operator addresses capacity.
 - Per-IP fixed windows: five dataset creations/hour and 120 authenticated-route
@@ -219,10 +239,10 @@ connection and must reload. The previous local store remains as a backup.
 
 Nursing uses `/api/nursing-sync/{create,append,pull}`, protocol envelope v2, and
 its own validated operations and credentials. It reuses the existing D1 tables,
-authentication, idempotency, rate limits, and 10,000-operation dataset quota.
+authentication, idempotency, rate limits, and 50,000-operation dataset quota.
 Weight keys cannot authenticate nursing routes or vice versa. **Deploy the Worker
-and client assets together**; no additional D1 migration is needed on an existing
-sync deployment. A fresh installation still needs migration `0001` above.
+and client assets together**; apply both migrations before deploying the updated
+Worker. Migration `0002` increases capacity for both weight and nursing datasets.
 
 Each feed has a stable session ID. Timer snapshots resolve by the highest accepted
 server sequence, not by device clocks. Concurrent changes to the same timer use
