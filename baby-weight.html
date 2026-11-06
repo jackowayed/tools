@@ -713,8 +713,8 @@
 <details class="card settings-card" id="babySettings">
   <summary>Age, Weight &amp; Sync Settings</summary>
   <div class="settings-row">
-    <label for="diaperGrams">Diaper weight (g)</label>
-    <input type="number" id="diaperGrams" inputmode="decimal" min="0" max="1000" step="any" placeholder="0" aria-describedby="diaperHint">
+    <label for="diaperWeight" id="diaperWeightLabel">Diaper weight (oz)</label>
+    <input type="number" id="diaperWeight" inputmode="decimal" min="0" max="1000" step="any" placeholder="0" aria-describedby="diaperHint">
   </div>
   <div class="settings-note" id="diaperHint">Saved automatically. Subtracted only when selected for a new weigh-in. Changes never affect earlier readings.</div>
   <div class="settings-row">
@@ -796,7 +796,7 @@ const unitKgBtn = document.getElementById('unitKg');
 const feedToggle = document.getElementById('feedToggle');
 const clothedToggle = document.getElementById('clothedToggle');
 const subtractDiaperEl = document.getElementById('subtractDiaper');
-const diaperGramsEl = document.getElementById('diaperGrams');
+const diaperWeightEl = document.getElementById('diaperWeight');
 const dtEl = document.getElementById('datetime');
 const useCustomEl = document.getElementById('useCustomTime');
 const errEl = document.getElementById('err');
@@ -1076,8 +1076,17 @@ function escHtml(s) {
 }
 
 function renderSettingsUI() {
-  if (document.activeElement !== diaperGramsEl) diaperGramsEl.value = String(settings.diaperGrams ?? 0);
-  document.getElementById('diaperAmount').textContent = `(${settings.diaperGrams ?? 0} g)`;
+  const diaperUnit = settings.unit === 'kg' ? 'g' : 'oz';
+  const gramsPerUnit = settings.unit === 'kg' ? 1 : KG_PER_LB * 1000 / 16;
+  const diaperValue = trimNum((settings.diaperGrams ?? 0) / gramsPerUnit, 6);
+  // A unit switch changes presentation only; keep the saved grams at full precision.
+  if (document.activeElement !== diaperWeightEl || diaperWeightEl.dataset.unit !== diaperUnit) {
+    diaperWeightEl.value = diaperValue;
+  }
+  diaperWeightEl.dataset.unit = diaperUnit;
+  diaperWeightEl.max = String(1000 / gramsPerUnit);
+  document.getElementById('diaperWeightLabel').textContent = `Diaper weight (${diaperUnit})`;
+  document.getElementById('diaperAmount').textContent = `(${diaperValue} ${diaperUnit})`;
   // Assigning a date input's value also resets its partially typed segments.
   // Storage/sync refreshes must leave an active or unsaved edit alone.
   const birthValue = settings.birth || '';
@@ -1496,12 +1505,14 @@ unitLbBtn.addEventListener('click', async () => {
 unitKgBtn.addEventListener('click', async () => {
   if (await persist(() => localLog.setUnit('kg'))) kgEl.focus();
 });
-diaperGramsEl.addEventListener('change', async () => {
-  if (diaperGramsEl.value === '' || !diaperGramsEl.validity.valid) {
-    errEl.textContent = 'Enter a diaper weight between 0 and 1000 grams (0 to turn off).';
+diaperWeightEl.addEventListener('change', async () => {
+  if (diaperWeightEl.value === '' || !diaperWeightEl.validity.valid) {
+    const max = settings.unit === 'kg' ? '1000 g' : `${trimNum(16 / KG_PER_LB, 2)} oz`;
+    errEl.textContent = `Enter a diaper weight between 0 and ${max} (0 to turn off).`;
     return;
   }
-  await persist(() => localLog.mutate('set-setting', { field: 'diaperGrams', value: Number(diaperGramsEl.value) }));
+  const gramsPerUnit = settings.unit === 'kg' ? 1 : KG_PER_LB * 1000 / 16;
+  await persist(() => localLog.mutate('set-setting', { field: 'diaperGrams', value: Number(diaperWeightEl.value) * gramsPerUnit }));
 });
 birthEl.addEventListener('input', () => {
   birthDraftDirty = true;
@@ -1617,7 +1628,7 @@ const syncConnectEl = document.getElementById('syncConnect');
 const syncDisconnectEl = document.getElementById('syncDisconnect');
 const syncRetryEl = document.getElementById('syncRetry');
 const syncCopyEl = document.getElementById('syncCopy');
-const mutationControls = [document.getElementById('addReading'), unitLbBtn, unitKgBtn, birthEl, sexGirlBtn, sexBoyBtn, diaperGramsEl];
+const mutationControls = [document.getElementById('addReading'), unitLbBtn, unitKgBtn, birthEl, sexGirlBtn, sexBoyBtn, diaperWeightEl];
 for (const control of [...mutationControls, syncCreateEl, syncConnectEl]) control.disabled = true;
 
 async function refreshFromStorage() {
