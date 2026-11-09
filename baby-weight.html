@@ -599,6 +599,16 @@
 <div class="card">
   <h2 id="entryFormTitle">Add a weigh-in</h2>
   <div class="err" id="err"></div>
+  <div class="photo-controls">
+    <button class="unit-btn" id="takeScalePhoto" type="button">Take scale photo</button>
+    <button class="unit-btn" id="chooseScalePhoto" type="button">Choose photo</button>
+    <input id="scaleCamera" type="file" accept="image/*" capture="environment" hidden>
+    <input id="scaleFile" type="file" accept="image/*" hidden>
+    <p class="hint">Blue digital display · lb:oz with one decimal. Photograph straight on with flash off. Photos stay on this device.</p>
+    <p class="hint" id="scalePhotoStatus" role="status" aria-live="polite"></p>
+    <canvas id="scalePhotoPreview" aria-label="Selected scale photo for checking the reading" role="img" hidden style="max-width:100%;height:auto;border-radius:10px"></canvas>
+    <button class="unit-btn" id="clearScalePhoto" type="button" hidden>Dismiss photo</button>
+  </div>
   <div class="unit-toggle" role="group" aria-label="Weight units">
     <button class="unit-btn active" id="unitLb" type="button">lb + oz</button>
     <button class="unit-btn" id="unitKg" type="button">kg</button>
@@ -773,6 +783,7 @@
 import { LocalLog, SyncEngine, visibleState, catchUpStatus, capacityWarning } from '/sync-client.js';
 import { weightGraph } from '/weight-graphs.js';
 import { escHtml } from '/html-utils.js';
+import { readScalePhoto } from '/scale-photo.js';
 
 // WHO Child Growth Standards, weight-for-age LMS (daily, 0-1856 days).
 // Source: WHO expanded tables via SunnySeedApp/who-growth-standards (MIT);
@@ -1433,6 +1444,57 @@ document.getElementById('addReading').addEventListener('click', async () => {
   (settings.unit === 'kg' ? kgEl : lbEl).focus();
 });
 
+const photoStatus = document.getElementById('scalePhotoStatus');
+const photoPreview = document.getElementById('scalePhotoPreview');
+const clearPhoto = document.getElementById('clearScalePhoto');
+let photoVersion = 0;
+function dismissPhoto() {
+  photoVersion++;
+  photoPreview.hidden = clearPhoto.hidden = true;
+  photoPreview.width = photoPreview.height = 0;
+  photoStatus.textContent = '';
+}
+clearPhoto.addEventListener('click', dismissPhoto);
+for (const [buttonId, inputId] of [['takeScalePhoto', 'scaleCamera'], ['chooseScalePhoto', 'scaleFile']]) {
+  const input = document.getElementById(inputId);
+  document.getElementById(buttonId).addEventListener('click', () => input.click());
+  input.addEventListener('change', async () => {
+    const file = input.files[0];
+    input.value = ''; // Selecting the same photo again should retry recognition.
+    if (!file) return;
+    dismissPhoto();
+    const version = photoVersion;
+    const canvas = document.createElement('canvas');
+    canvas.hidden = true;
+    photoStatus.textContent = 'Reading scale…';
+    clearPhoto.hidden = false;
+    try {
+      const result = await readScalePhoto(file, canvas);
+      if (version !== photoVersion) return;
+      lbEl.value = String(result.pounds);
+      ozEl.value = result.ounces.toFixed(1);
+      kgEl.value = String((result.pounds + result.ounces / 16) * KG_PER_LB);
+      photoStatus.textContent = `Detected ${result.pounds} lb ${result.ounces.toFixed(1)} oz. Check the photo and weight before saving. Nothing has been saved yet.`;
+      errEl.textContent = '';
+    } catch (error) {
+      if (version !== photoVersion) return;
+      photoStatus.textContent = error.message;
+    } finally {
+      if (version === photoVersion && canvas.width && !canvas.hidden) {
+        photoPreview.width = canvas.width;
+        photoPreview.height = canvas.height;
+        photoPreview.getContext('2d').drawImage(canvas, 0, 0);
+        photoPreview.hidden = false;
+      }
+    }
+  });
+}
+// A late decode must never overwrite a newer manual entry or a different edit.
+for (const field of [lbEl, ozEl, kgEl]) field.addEventListener('input', () => {
+  photoVersion++;
+  if (photoStatus.textContent) photoStatus.textContent = 'Weight edited. Check the values before saving.';
+});
+
 unitLbBtn.addEventListener('click', async () => {
   if (await persist(() => localLog.setUnit('lb'))) lbEl.focus();
 });
@@ -1489,6 +1551,7 @@ document.querySelectorAll('.tab').forEach(tab => {
 });
 
 function resetEdit() {
+  dismissPhoto();
   subtractDiaperEl.checked = false;
   document.getElementById('subtractDiaperRow').hidden = false;
   editingEntry = null;
@@ -1510,6 +1573,7 @@ function handleEditClick(ev) {
   if (!btn || !localLog || document.getElementById('addReading').disabled) return;
   const entry = entries.find(e => e.id === btn.dataset.id);
   if (!entry) return;
+  dismissPhoto();
   editingEntry = { ...entry };
   subtractDiaperEl.checked = false;
   document.getElementById('subtractDiaperRow').hidden = true;
