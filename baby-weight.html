@@ -352,6 +352,23 @@
     margin-bottom: 0.2rem;
   }
 
+  .weekly-growth {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: #555;
+  }
+  .weekly-growth-value {
+    padding: 0.6rem;
+    font-size: 1rem;
+    border: 2px solid #d7e5e3;
+    border-radius: 0.6rem;
+    background: #fafcfb;
+    color: #1a1a1a;
+  }
+
   .history-filters {
     display: flex;
     flex-wrap: wrap;
@@ -662,6 +679,10 @@
 
 
 <div class="feed">
+  <div class="weekly-growth">
+    <span>Past week growth</span>
+    <div class="weekly-growth-value" id="weeklyGrowth">-</div>
+  </div>
   <div class="feed-title">History</div>
   <div class="settings-summary" id="settingsSummary"></div>
   <div class="history-filters" role="group" aria-label="History filters">
@@ -1169,12 +1190,23 @@ function ageCellContent(entry) {
 
 function render() {
   renderSettingsUI();
+  renderWeeklyGrowth();
   renderTodayPercentiles();
   renderWeightGraphs();
   renderList();
   renderTable();
   feedEl.style.display = currentView === 'list' ? '' : 'none';
   tableEl.style.display = currentView === 'table' ? '' : 'none';
+}
+
+function renderWeeklyGrowth() {
+  const eligible = entries.filter(e => !e.clothed && !e.afterFeed
+    && Number.isFinite(e.ts) && Number.isFinite(e.kg) && e.kg > 0)
+    .sort((a, b) => b.ts - a.ts);
+  const latest = eligible[0];
+  const earlier = latest && eligible.find(e => latest.ts - e.ts >= 6.5 * 86400000);
+  const value = earlier ? `${((latest.kg - earlier.kg) * 1000 / ((latest.ts - earlier.ts) / 86400000)).toFixed(1)} g/day` : '-';
+  document.getElementById('weeklyGrowth').textContent = value;
 }
 
 // Graphs deliberately use the full naked-weight history, independent of list filters.
