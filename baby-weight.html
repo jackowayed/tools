@@ -353,12 +353,20 @@
   }
 
   .weekly-growth {
-    background: #f5f8f7;
-    border: 1px solid #dce8e4;
-    border-radius: 0.5rem;
-    padding: 0.75rem;
-    margin: 0.6rem 0;
-    font-size: 0.9rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: #555;
+  }
+  .weekly-growth-value {
+    padding: 0.6rem;
+    font-size: 1rem;
+    border: 2px solid #d7e5e3;
+    border-radius: 0.6rem;
+    background: #fafcfb;
+    color: #1a1a1a;
   }
 
   .history-filters {
@@ -672,7 +680,10 @@
 
 <div class="feed">
   <div class="feed-title">History</div>
-  <div class="weekly-growth">Past week growth: <strong id="weeklyGrowth">-</strong></div>
+  <div class="weekly-growth">
+    <span>Past week growth</span>
+    <div class="weekly-growth-value" id="weeklyGrowth">-</div>
+  </div>
   <div class="settings-summary" id="settingsSummary"></div>
   <div class="history-filters" role="group" aria-label="History filters">
     <div>
