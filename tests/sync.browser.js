@@ -81,6 +81,7 @@ test('Chromium: weekly growth debug explains the headline using the same weigh-i
     await addAt(4.2, '2026-11-08T12:00');
     await addAt(4.1, '2026-11-02T00:01');
     await debug.getByText('No eligible reading at least 6.5 days earlier.').waitFor();
+    assert.match(await details.last().textContent(), /4100 g · 1 min too recent$/);
     assert.equal(await headline.textContent(), '-');
 
     await addAt(3.9, '2026-11-01T00:00');
@@ -91,13 +92,20 @@ test('Chromium: weekly growth debug explains the headline using the same weigh-i
     await addAt(4.4, '2026-11-08T14:00');
     await page.locator('#historyFeed').selectOption('after');
 
-    const [latest, earlier, difference, denominator, rate] = await details.allTextContents();
+    const [latest, cutoff, earlier, skipped, difference, denominator, rate] = await details.allTextContents();
+    assert.match(cutoff, /^Nov 2, 2026, 12:00:00\.000\sAM /);
+    assert.match(skipped, /4100 g · 1 min too recent$/);
     assert.match(latest, /^Nov 8, 2026, 12:00:00\.000\sPM .* · 4200 g$/);
     assert.match(earlier, /^Nov 2, 2026, 12:00:00\.000\sAM .* · 4005 g$/);
     assert.equal(difference, '4200 g − 4005 g ≈ 195 g');
     assert.equal(denominator, '561,600,000 ms ÷ 86,400,000 ms/day ≈ 6.5 days');
     assert.equal(await headline.textContent(), '30.0 g/day');
     assert.equal(rate, '195 g ÷ 6.5 days ≈ 30.0 g/day');
+    await page.locator('#clothedToggle').check();
+    await page.locator('#feedToggle').check();
+    await addAt(4.15, '2026-11-02T00:00');
+    assert.match(await details.nth(3).textContent(), /4150 g · clothed · after feed$/);
+    assert.equal(await headline.textContent(), '30.0 g/day');
   } finally {
     await context.close();
   }

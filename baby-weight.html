@@ -1265,7 +1265,8 @@ function renderWeeklyGrowth() {
     && Number.isFinite(e.ts) && Number.isFinite(e.kg) && e.kg > 0)
     .sort((a, b) => b.ts - a.ts);
   const latest = eligible[0];
-  const earlier = latest && eligible.find(e => latest.ts - e.ts >= WEEKLY_GROWTH_MIN_DAYS * MS_PER_DAY);
+  const cutoff = latest && latest.ts - WEEKLY_GROWTH_MIN_DAYS * MS_PER_DAY;
+  const earlier = latest && eligible.find(e => e.ts <= cutoff);
   const elapsedMs = earlier ? latest.ts - earlier.ts : 0;
   const elapsedDays = elapsedMs / MS_PER_DAY;
   const differenceGrams = earlier ? (latest.kg - earlier.kg) * 1000 : 0;
@@ -1275,7 +1276,26 @@ function renderWeeklyGrowth() {
   if (!weightDebugEl.open) return;
   let details = `<dt>Latest reading</dt><dd>${latest ? fmtDebugReading(latest) : 'No naked, before-feed weigh-ins yet.'}</dd>`;
   if (latest) {
+    const cutoffDate = new Date(cutoff);
+    const cutoffText = Number.isFinite(cutoffDate.getTime()) ? escHtml(debugReadingTime.format(cutoffDate)) : 'Before the supported date range';
+    details += `<dt>Comparison cutoff (on or before)</dt><dd>${cutoffText}</dd>`;
     details += `<dt>Comparison reading</dt><dd>${earlier ? fmtDebugReading(earlier) : 'No eligible reading at least 6.5 days earlier.'}</dd>`;
+    let skipped;
+    for (const entry of entries) {
+      if (entry === latest || entry.ts > latest.ts || !(entry.ts > cutoff || entry.clothed || entry.afterFeed)) continue;
+      if (!skipped || Math.abs(entry.ts - cutoff) < Math.abs(skipped.ts - cutoff)) skipped = entry;
+    }
+    if (skipped) {
+      const reasons = [];
+      const lateMs = skipped.ts - cutoff;
+      if (lateMs > 0) {
+        const gap = lateMs < 60000 ? `${trimNum(lateMs / 1000, 3)} s` : `${trimNum(lateMs / 60000, 2)} min`;
+        reasons.push(`${gap} too recent`);
+      }
+      if (skipped.clothed) reasons.push('clothed');
+      if (skipped.afterFeed) reasons.push('after feed');
+      details += `<dt>Skipped reading closest to cutoff</dt><dd>${fmtDebugReading(skipped)} · ${reasons.join(' · ')}</dd>`;
+    }
   }
   if (earlier) {
     const difference = fmtDebugGrams(differenceGrams);
