@@ -368,6 +368,11 @@
     background: #fafcfb;
     color: #1a1a1a;
   }
+  #weeklyGrowthDebug h3 { margin-bottom: 0.4rem; font-size: 0.95rem; }
+  #weeklyGrowthDebug .settings-note { color: #555; }
+  #weeklyGrowthDebug dl { margin-top: 0.75rem; font-size: 0.85rem; line-height: 1.45; }
+  #weeklyGrowthDebug dt { margin-top: 0.5rem; font-weight: 600; }
+  #weeklyGrowthDebug dd { overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 
   .history-filters {
     display: flex;
@@ -785,6 +790,13 @@
   </div>
 </dialog>
 
+<details class="card settings-card" id="weeklyGrowthDebug">
+  <summary>Debug</summary>
+  <h3>Past week growth</h3>
+  <p class="settings-note">Uses the full log of naked, before-feed weigh-ins. It compares the latest reading with the most recent one at least 6.5 days (156 hours) earlier.</p>
+  <dl id="weeklyGrowthDebugContent"></dl>
+</details>
+
 <footer>
   Weigh-ins and settings are saved on this device. When you enable sync, weigh-ins, birth date, sex and diaper weight are also stored on the server. Unit preference stays on this device.<br>
   Percentiles use the <a href="https://www.who.int/tools/child-growth-standards/standards/weight-for-age">WHO Child Growth Standards</a> (weight-for-age, 0–5 y). For tracking only — not medical advice.
@@ -809,6 +821,8 @@ const KG_PER_LB = 0.45359237;
 const CLOTHING_KG = 5 / 16 * KG_PER_LB;
 const EAT_WINDOW_MS = 60 * 60 * 1000;
 const WHO_MAX_DAYS = 1856;
+const MS_PER_DAY = 86400000;
+const WEEKLY_GROWTH_MIN_DAYS = 6.5;
 
 const lbEl = document.getElementById('lb');
 const ozEl = document.getElementById('oz');
@@ -837,6 +851,7 @@ const settingsSummaryEl = document.getElementById('settingsSummary');
 const todayPercentilesEl = document.getElementById('todayPercentiles');
 const todayPercentilesNoteEl = document.getElementById('todayPercentilesNote');
 const todayPercentilesTableEl = document.getElementById('todayPercentilesTable');
+const weeklyGrowthDebugEl = document.getElementById('weeklyGrowthDebug');
 
 let currentView = 'table';
 let showAllWeights = false;
@@ -1204,10 +1219,37 @@ function renderWeeklyGrowth() {
     && Number.isFinite(e.ts) && Number.isFinite(e.kg) && e.kg > 0)
     .sort((a, b) => b.ts - a.ts);
   const latest = eligible[0];
-  const earlier = latest && eligible.find(e => latest.ts - e.ts >= 6.5 * 86400000);
-  const value = earlier ? `${((latest.kg - earlier.kg) * 1000 / ((latest.ts - earlier.ts) / 86400000)).toFixed(1)} g/day` : '-';
+  const earlier = latest && eligible.find(e => latest.ts - e.ts >= WEEKLY_GROWTH_MIN_DAYS * MS_PER_DAY);
+  const elapsedMs = earlier ? latest.ts - earlier.ts : 0;
+  const elapsedDays = elapsedMs / MS_PER_DAY;
+  const differenceGrams = earlier ? (latest.kg - earlier.kg) * 1000 : 0;
+  const value = earlier ? `${(differenceGrams / elapsedDays).toFixed(1)} g/day` : '-';
   document.getElementById('weeklyGrowth').textContent = value;
+
+  if (!weeklyGrowthDebugEl.open) return;
+  const readingTime = new Intl.DateTimeFormat(undefined, {
+    year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+    second: '2-digit', fractionalSecondDigits: 3, timeZoneName: 'shortOffset',
+  });
+  const formatGrams = grams => `${trimNum(grams, 3)} g`;
+  const formatReading = entry => `${escHtml(readingTime.format(entry.ts))} · ${formatGrams(entry.kg * 1000)}`;
+  let details = `<dt>Latest reading</dt><dd>${latest ? formatReading(latest) : 'No naked, before-feed weigh-ins yet.'}</dd>`;
+  if (latest) {
+    details += `<dt>Comparison reading</dt><dd>${earlier ? formatReading(earlier) : 'No eligible reading at least 6.5 days earlier.'}</dd>`;
+  }
+  if (earlier) {
+    const difference = formatGrams(differenceGrams);
+    const days = `${trimNum(elapsedDays, 6)} days`;
+    details += `
+      <dt>Weight difference</dt><dd>${formatGrams(latest.kg * 1000)} − ${formatGrams(earlier.kg * 1000)} ≈ ${difference}</dd>
+      <dt>Elapsed time (denominator)</dt><dd>${elapsedMs.toLocaleString()} ms ÷ ${MS_PER_DAY.toLocaleString()} ms/day ≈ ${days}</dd>
+      <dt>Average daily growth</dt><dd>${difference} ÷ ${days} ≈ <strong>${value}</strong></dd>`;
+  }
+  document.getElementById('weeklyGrowthDebugContent').innerHTML = details;
 }
+weeklyGrowthDebugEl.addEventListener('toggle', () => {
+  if (weeklyGrowthDebugEl.open) renderWeeklyGrowth();
+});
 
 // Graphs deliberately use the full naked-weight history, independent of list filters.
 function renderWeightGraphs() {

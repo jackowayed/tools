@@ -62,6 +62,47 @@ async function savedBirth(page) {
   });
 }
 
+test('Chromium: weekly growth debug explains the headline using the same weigh-ins', async () => {
+  const context = await browser.newContext({ locale: 'en-US', timezoneId: 'UTC', viewport: { width: 375, height: 812 } });
+  try {
+    const page = await open(context);
+    const debug = page.locator('#weeklyGrowthDebug');
+    const headline = page.locator('#weeklyGrowth');
+    const details = debug.locator('dd');
+    async function addAt(kg, timestamp) {
+      await page.locator('#useCustomTime').check();
+      await page.locator('#datetime').fill(timestamp);
+      await add(page, kg);
+    }
+
+    assert.equal(await debug.evaluate(el => el.open), false);
+    await debug.locator('summary').press('Enter');
+    await debug.getByText('No naked, before-feed weigh-ins yet.').waitFor();
+    await addAt(4.2, '2026-11-08T12:00');
+    await addAt(4.1, '2026-11-02T00:01');
+    await debug.getByText('No eligible reading at least 6.5 days earlier.').waitFor();
+    assert.equal(await headline.textContent(), '-');
+
+    await addAt(3.9, '2026-11-01T00:00');
+    await addAt(4.005, '2026-11-02T00:00');
+    await page.locator('#clothedToggle').check();
+    await addAt(4.3, '2026-11-08T13:00');
+    await page.locator('#feedToggle').check();
+    await addAt(4.4, '2026-11-08T14:00');
+    await page.locator('#historyFeed').selectOption('after');
+
+    const [latest, earlier, difference, denominator, rate] = await details.allTextContents();
+    assert.match(latest, /^Nov 8, 2026, 12:00:00\.000\sPM .* · 4200 g$/);
+    assert.match(earlier, /^Nov 2, 2026, 12:00:00\.000\sAM .* · 4005 g$/);
+    assert.equal(difference, '4200 g − 4005 g ≈ 195 g');
+    assert.equal(denominator, '561,600,000 ms ÷ 86,400,000 ms/day ≈ 6.5 days');
+    assert.equal(await headline.textContent(), '30.0 g/day');
+    assert.equal(rate, '195 g ÷ 6.5 days ≈ 30.0 g/day');
+  } finally {
+    await context.close();
+  }
+});
+
 test('Chromium: diaper subtraction defaults off, saves net kg in either unit, and never changes earlier readings', async () => {
   const context = await browser.newContext();
   const page = await open(context);
