@@ -374,6 +374,9 @@
   #weightDebug dl { margin-top: 0.75rem; font-size: 0.85rem; line-height: 1.45; }
   #weightDebug dt { margin-top: 0.5rem; font-weight: 600; }
   #weightDebug dd { overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+  #feedPairingControls { margin-top: 0.75rem; }
+  #feedPairingControls[hidden] { display: none; }
+  #feedPairingEmpty { margin-top: 0.75rem; }
 
   .history-filters {
     display: flex;
@@ -803,6 +806,16 @@
     <p class="settings-note" id="syncDebugStatus">Opening local storage…</p>
     <dl id="syncDebugContent"></dl>
   </section>
+  <section>
+    <h3>Feed pairing</h3>
+    <p class="settings-note">The “Ate” estimate uses the latest before-feed weigh-in with the same clothing status up to 60 minutes earlier.</p>
+    <div class="settings-row" id="feedPairingControls" hidden>
+      <label for="feedPairingReading">After-feed weigh-in</label>
+      <select id="feedPairingReading"></select>
+    </div>
+    <p class="settings-note" id="feedPairingEmpty">No after-feed weigh-ins yet.</p>
+    <dl id="feedPairingContent"></dl>
+  </section>
 </details>
 
 <footer>
@@ -860,6 +873,10 @@ const todayPercentilesEl = document.getElementById('todayPercentiles');
 const todayPercentilesNoteEl = document.getElementById('todayPercentilesNote');
 const todayPercentilesTableEl = document.getElementById('todayPercentilesTable');
 const weightDebugEl = document.getElementById('weightDebug');
+const feedPairingControlsEl = document.getElementById('feedPairingControls');
+const feedPairingEmptyEl = document.getElementById('feedPairingEmpty');
+const feedPairingReadingEl = document.getElementById('feedPairingReading');
+const feedPairingContentEl = document.getElementById('feedPairingContent');
 
 let currentView = 'table';
 let showAllWeights = false;
@@ -938,6 +955,7 @@ function load() {
 }
 
 let entries = [];
+let eatenById = Object.create(null);
 let localLog, syncEngine;
 let lastRevision = -1;
 let syncMessage = '';
@@ -1085,6 +1103,11 @@ function fmtOzDiff(kg) {
   return trimNum(Math.abs(oz), 1) + ' oz';
 }
 
+function fmtEaten(diffKg) {
+  const sign = diffKg < 0 ? '−' : '+';
+  return `~${sign}${fmtGrams(Math.abs(diffKg))} (${fmtOzDiff(diffKg)})`;
+}
+
 // Match before/after feed weights with the same clothing status within 1h.
 function computeEaten() {
   const byId = Object.create(null);
@@ -1108,6 +1131,19 @@ function fmtWhen(ts) {
   const date = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
   const time = d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', hour12: true });
   return `${date} <strong>${time}</strong>`;
+}
+
+const debugReadingTime = new Intl.DateTimeFormat(undefined, {
+  year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+  second: '2-digit', fractionalSecondDigits: 3, timeZoneName: 'shortOffset',
+});
+
+function fmtDebugGrams(grams) {
+  return `${trimNum(grams, 3)} g`;
+}
+
+function fmtDebugReading(entry) {
+  return `${escHtml(debugReadingTime.format(entry.ts))} · ${fmtDebugGrams(entry.kg * 1000)}`;
 }
 
 function fmtTableDate(ts) {
@@ -1216,8 +1252,10 @@ function render() {
   renderWeeklyGrowth();
   renderTodayPercentiles();
   renderWeightGraphs();
+  eatenById = computeEaten();
   renderList();
   renderTable();
+  renderFeedPairingOptions();
   feedEl.style.display = currentView === 'list' ? '' : 'none';
   tableEl.style.display = currentView === 'table' ? '' : 'none';
 }
@@ -1235,26 +1273,55 @@ function renderWeeklyGrowth() {
   document.getElementById('weeklyGrowth').textContent = value;
 
   if (!weightDebugEl.open) return;
-  const readingTime = new Intl.DateTimeFormat(undefined, {
-    year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
-    second: '2-digit', fractionalSecondDigits: 3, timeZoneName: 'shortOffset',
-  });
-  const formatGrams = grams => `${trimNum(grams, 3)} g`;
-  const formatReading = entry => `${escHtml(readingTime.format(entry.ts))} · ${formatGrams(entry.kg * 1000)}`;
-  let details = `<dt>Latest reading</dt><dd>${latest ? formatReading(latest) : 'No naked, before-feed weigh-ins yet.'}</dd>`;
+  let details = `<dt>Latest reading</dt><dd>${latest ? fmtDebugReading(latest) : 'No naked, before-feed weigh-ins yet.'}</dd>`;
   if (latest) {
-    details += `<dt>Comparison reading</dt><dd>${earlier ? formatReading(earlier) : 'No eligible reading at least 6.5 days earlier.'}</dd>`;
+    details += `<dt>Comparison reading</dt><dd>${earlier ? fmtDebugReading(earlier) : 'No eligible reading at least 6.5 days earlier.'}</dd>`;
   }
   if (earlier) {
-    const difference = formatGrams(differenceGrams);
+    const difference = fmtDebugGrams(differenceGrams);
     const days = `${trimNum(elapsedDays, 6)} days`;
     details += `
-      <dt>Weight difference</dt><dd>${formatGrams(latest.kg * 1000)} − ${formatGrams(earlier.kg * 1000)} ≈ ${difference}</dd>
+      <dt>Weight difference</dt><dd>${fmtDebugGrams(latest.kg * 1000)} − ${fmtDebugGrams(earlier.kg * 1000)} ≈ ${difference}</dd>
       <dt>Elapsed time (denominator)</dt><dd>${elapsedMs.toLocaleString()} ms ÷ ${MS_PER_DAY.toLocaleString()} ms/day ≈ ${days}</dd>
       <dt>Average daily growth</dt><dd>${difference} ÷ ${days} ≈ <strong>${value}</strong></dd>`;
   }
   document.getElementById('weeklyGrowthDebugContent').innerHTML = details;
 }
+
+function renderFeedPairingOptions() {
+  if (!weightDebugEl.open) return;
+  const readings = entries.filter(entry => entry.afterFeed).sort((a, b) => b.ts - a.ts);
+  const selected = feedPairingReadingEl.value;
+  const optionTime = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+  feedPairingReadingEl.innerHTML = readings.map(entry => {
+    const label = `${optionTime.format(entry.ts)} · ${fmtDebugGrams(entry.kg * 1000)} · ${entry.clothed ? 'clothed' : 'naked'}`;
+    return `<option value="${escHtml(entry.id)}"${entry.id === selected ? ' selected' : ''}>${escHtml(label)}</option>`;
+  }).join('');
+  feedPairingControlsEl.hidden = readings.length === 0;
+  feedPairingEmptyEl.hidden = readings.length > 0;
+  renderFeedPairing();
+}
+
+function renderFeedPairing() {
+  const after = entries.find(entry => entry.id === feedPairingReadingEl.value);
+  if (!after) { feedPairingContentEl.innerHTML = ''; return; }
+  const pair = eatenById[after.id];
+  const clothing = after.clothed ? 'Clothed' : 'Naked';
+  let details = `<dt>After-feed reading</dt><dd>${fmtDebugReading(after)} · ${clothing}</dd>`;
+  if (pair) {
+    const { before, diffKg } = pair;
+    const minutes = trimNum((after.ts - before.ts) / 60000, 2);
+    details += `
+      <dt>Matched before-feed reading</dt><dd>${fmtDebugReading(before)} · ${clothing}</dd>
+      <dt>Time between readings</dt><dd>${minutes} min</dd>
+      <dt>Weight difference</dt><dd>${fmtDebugGrams(after.kg * 1000)} − ${fmtDebugGrams(before.kg * 1000)} ≈ ${fmtDebugGrams(diffKg * 1000)}</dd>
+      <dt>“Ate” estimate in History</dt><dd>${fmtEaten(diffKg)}</dd>`;
+  } else {
+    details += '<dt>Matching before-feed reading</dt><dd>No earlier weigh-in with the same clothing status within 60 minutes.</dd>';
+  }
+  feedPairingContentEl.innerHTML = details;
+}
+feedPairingReadingEl.addEventListener('change', renderFeedPairing);
 // Graphs deliberately use the full naked-weight history, independent of list filters.
 function renderWeightGraphs() {
   if (!document.getElementById('weightGraphs').open) return;
@@ -1312,7 +1379,6 @@ function historyEmptyMessage() {
 }
 
 function renderList() {
-  const eaten = computeEaten();
   const sorted = entries.filter(matchesHistoryFilters).sort((a, b) => b.ts - a.ts);
   if (sorted.length === 0) {
     feedEl.innerHTML = `<div class="empty">${historyEmptyMessage()}</div>`;
@@ -1336,11 +1402,10 @@ function renderList() {
       if (ad >= 0 && ad <= WHO_MAX_DAYS) ageBit = `<span style="color:#999;font-size:0.78rem">${escHtml(fmtAge(ad))}</span>`;
     }
     let ateHtml = '';
-    const ate = eaten[e.id];
+    const ate = eatenById[e.id];
     if (ate) {
-      const sign = ate.diffKg < 0 ? '−' : '+';
       const mins = Math.round((e.ts - ate.before.ts) / 60000);
-      ateHtml = `<div class="ate-line">🍼 Ate ~${sign}${fmtGrams(Math.abs(ate.diffKg))} (${fmtOzDiff(ate.diffKg)}) · ${mins} min after before-feed weigh-in</div>`;
+      ateHtml = `<div class="ate-line">🍼 Ate ${fmtEaten(ate.diffKg)} · ${mins} min after before-feed weigh-in</div>`;
     }
     div.innerHTML =
       `<span class="icon">${e.afterFeed ? '🍼' : '🪶'}</span>` +
@@ -1713,6 +1778,7 @@ async function refreshFromStorage() {
 weightDebugEl.addEventListener('toggle', () => {
   if (!weightDebugEl.open) return;
   renderWeeklyGrowth();
+  renderFeedPairingOptions();
   if (localLog) void refreshFromStorage().catch(error => { errEl.textContent = error.message; });
 });
 

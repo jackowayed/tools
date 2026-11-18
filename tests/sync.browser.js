@@ -147,6 +147,51 @@ test('Chromium: sync debug shows local queue, failed upload, retry and saved tim
   }
 });
 
+test('Chromium: feed pairing debug agrees with History and updates after deleting a match', async () => {
+  const context = await browser.newContext({ locale: 'en-US', timezoneId: 'UTC', viewport: { width: 375, height: 812 } });
+  try {
+    await context.addInitScript(() => {
+      const base = Date.parse('2026-11-06T10:00:00Z');
+      const reading = (id, minutes, kg, afterFeed = false, clothed = false) => ({
+        type: 'weight', id, ts: base + minutes * 60000, kg, afterFeed, clothed,
+      });
+      localStorage.setItem('babyWeightLog', JSON.stringify([
+        reading('older', -20, 3), reading('matched', 0, 3.2), reading('clothed', 10, 3.4, false, true),
+        reading('paired', 20, 3.15, true), reading('unpaired', 81, 3.3, true),
+      ]));
+    });
+    const page = await open(context);
+    await rows(page, 5);
+    await page.locator('#weightDebug summary').click();
+    const select = page.getByLabel('After-feed weigh-in', { exact: true });
+    const details = page.locator('#feedPairingContent dd');
+    await select.waitFor();
+    assert.equal(await select.inputValue(), 'unpaired');
+    assert.match(await details.nth(1).textContent(), /within 60 minutes/);
+
+    await select.selectOption('paired');
+    assert.match(await details.nth(0).textContent(), /10:20:00\.000.*3150 g · Naked/);
+    assert.match(await details.nth(1).textContent(), /10:00:00\.000.*3200 g · Naked/);
+    assert.equal(await details.nth(2).textContent(), '20 min');
+    assert.equal(await details.nth(3).textContent(), '3150 g − 3200 g ≈ -50 g');
+    await page.locator('#historyFeed').selectOption('after');
+    await page.locator('#tabList').click();
+    assert.equal(await select.inputValue(), 'paired');
+    assert.equal(await details.nth(4).textContent(), '~−50 g (1.8 oz)');
+    assert.match(await page.locator('.ate-line').textContent(), /Ate ~−50 g \(1\.8 oz\) · 20 min/);
+
+    await page.locator('#historyFeed').selectOption('all');
+    await page.locator('#tabTable').click();
+    page.once('dialog', dialog => dialog.accept());
+    await page.locator('#table .del[data-id="matched"]').click();
+    await rows(page, 4);
+    assert.equal(await select.inputValue(), 'paired');
+    assert.match(await details.nth(1).textContent(), /9:40:00\.000.*3000 g · Naked/);
+    assert.equal(await details.nth(2).textContent(), '40 min');
+    assert.equal(await details.nth(4).textContent(), '~+150 g (5.3 oz)');
+  } finally { await context.close(); }
+});
+
 test('Chromium: diaper subtraction defaults off, saves net kg in either unit, and never changes earlier readings', async () => {
   const context = await browser.newContext();
   const page = await open(context);
