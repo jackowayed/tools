@@ -368,11 +368,12 @@
     background: #fafcfb;
     color: #1a1a1a;
   }
-  #weeklyGrowthDebug h3 { margin-bottom: 0.4rem; font-size: 0.95rem; }
-  #weeklyGrowthDebug .settings-note { color: #555; }
-  #weeklyGrowthDebug dl { margin-top: 0.75rem; font-size: 0.85rem; line-height: 1.45; }
-  #weeklyGrowthDebug dt { margin-top: 0.5rem; font-weight: 600; }
-  #weeklyGrowthDebug dd { overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+  #weightDebug section + section { border-top: 1px solid #d7e5e3; margin-top: 1rem; padding-top: 1rem; }
+  #weightDebug h3 { margin-bottom: 0.4rem; font-size: 0.95rem; }
+  #weightDebug .settings-note { color: #555; }
+  #weightDebug dl { margin-top: 0.75rem; font-size: 0.85rem; line-height: 1.45; }
+  #weightDebug dt { margin-top: 0.5rem; font-weight: 600; }
+  #weightDebug dd { overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 
   .history-filters {
     display: flex;
@@ -790,11 +791,18 @@
   </div>
 </dialog>
 
-<details class="card settings-card" id="weeklyGrowthDebug">
+<details class="card settings-card" id="weightDebug">
   <summary>Debug</summary>
-  <h3>Past week growth</h3>
-  <p class="settings-note">Uses the full log of naked, before-feed weigh-ins. It compares the latest reading with the most recent one at least 6.5 days (156 hours) earlier.</p>
-  <dl id="weeklyGrowthDebugContent"></dl>
+  <section>
+    <h3>Past week growth</h3>
+    <p class="settings-note">Uses the full log of naked, before-feed weigh-ins. It compares the latest reading with the most recent one at least 6.5 days (156 hours) earlier.</p>
+    <dl id="weeklyGrowthDebugContent"></dl>
+  </section>
+  <section>
+    <h3>Sync</h3>
+    <p class="settings-note" id="syncDebugStatus">Opening local storage…</p>
+    <dl id="syncDebugContent"></dl>
+  </section>
 </details>
 
 <footer>
@@ -851,7 +859,7 @@ const settingsSummaryEl = document.getElementById('settingsSummary');
 const todayPercentilesEl = document.getElementById('todayPercentiles');
 const todayPercentilesNoteEl = document.getElementById('todayPercentilesNote');
 const todayPercentilesTableEl = document.getElementById('todayPercentilesTable');
-const weeklyGrowthDebugEl = document.getElementById('weeklyGrowthDebug');
+const weightDebugEl = document.getElementById('weightDebug');
 
 let currentView = 'table';
 let showAllWeights = false;
@@ -1226,7 +1234,7 @@ function renderWeeklyGrowth() {
   const value = earlier ? `${(differenceGrams / elapsedDays).toFixed(1)} g/day` : '-';
   document.getElementById('weeklyGrowth').textContent = value;
 
-  if (!weeklyGrowthDebugEl.open) return;
+  if (!weightDebugEl.open) return;
   const readingTime = new Intl.DateTimeFormat(undefined, {
     year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
     second: '2-digit', fractionalSecondDigits: 3, timeZoneName: 'shortOffset',
@@ -1247,10 +1255,6 @@ function renderWeeklyGrowth() {
   }
   document.getElementById('weeklyGrowthDebugContent').innerHTML = details;
 }
-weeklyGrowthDebugEl.addEventListener('toggle', () => {
-  if (weeklyGrowthDebugEl.open) renderWeeklyGrowth();
-});
-
 // Graphs deliberately use the full naked-weight history, independent of list filters.
 function renderWeightGraphs() {
   if (!document.getElementById('weightGraphs').open) return;
@@ -1636,8 +1640,44 @@ const syncConnectEl = document.getElementById('syncConnect');
 const syncDisconnectEl = document.getElementById('syncDisconnect');
 const syncRetryEl = document.getElementById('syncRetry');
 const syncCopyEl = document.getElementById('syncCopy');
+const syncDebugStatusEl = document.getElementById('syncDebugStatus');
+const syncDebugContentEl = document.getElementById('syncDebugContent');
+const syncActivityLabels = { create: 'Creating sync', connect: 'Connecting', pull: 'Downloading', append: 'Uploading' };
+const syncFailureLabels = { create: 'Setup failed', connect: 'Connection failed', pull: 'Download failed', append: 'Upload failed', sync: 'Sync failed' };
 const mutationControls = [document.getElementById('addReading'), unitLbBtn, unitKgBtn, birthEl, sexGirlBtn, sexBoyBtn, diaperWeightEl];
 for (const control of [...mutationControls, syncCreateEl, syncConnectEl]) control.disabled = true;
+
+function renderSyncDebug({ sync, pending }) {
+  if (!weightDebugEl.open) return;
+  const { activeActions, lastError, nextAttempt, retryAfter } = syncEngine;
+  const active = [...activeActions].at(-1);
+  const now = Date.now();
+  const retryAt = Math.max(sync?.retryAfter ?? 0, retryAfter, nextAttempt);
+  let activity = 'Sync off';
+  if (active) activity = syncActivityLabels[active.action];
+  else if (sync && !sync.enabled) activity = 'Disconnected';
+  else if (sync?.enabled) {
+    if (!navigator.onLine) activity = 'Offline';
+    else if (retryAt > now) activity = 'Waiting to retry';
+    else activity = catchUpStatus(sync) || (pending.length ? 'Waiting to upload' : 'Idle');
+  }
+  syncDebugStatusEl.textContent = activity;
+
+  const counts = { 'add-entry': 0, 'update-entry': 0, 'delete-entry': 0, 'set-setting': 0 };
+  for (const change of pending) counts[change.type]++;
+  const queued = `Adds ${counts['add-entry'].toLocaleString()} · Edits ${counts['update-entry'].toLocaleString()} · Deletions ${counts['delete-entry'].toLocaleString()} · Settings ${counts['set-setting'].toLocaleString()}`;
+  const time = ts => escHtml(new Date(ts).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'medium' }));
+  const upload = sync?.lastUploadAt;
+  const download = sync?.lastDownloadAt ?? sync?.syncedAt;
+  const failure = lastError && `${syncFailureLabels[lastError.action]}${lastError.httpStatus ? ` (HTTP ${lastError.httpStatus})` : ''} · ${time(lastError.at)}`;
+  const nextRunAt = Math.max(retryAt, sync?.nextChunkAt ?? 0);
+  syncDebugContentEl.innerHTML = `
+    <dt>Pending local changes</dt><dd>${queued}</dd>
+    <dt>Last successful upload</dt><dd>${upload ? time(upload) : 'No timestamp recorded'}</dd>
+    <dt>Last successful download</dt><dd>${download ? time(download) : 'No timestamp recorded'}</dd>
+    ${failure ? `<dt>Last error in this tab</dt><dd>${failure}</dd>` : ''}
+    ${sync?.enabled && nextRunAt > now ? `<dt>${retryAt >= nextRunAt ? 'Automatic retry after' : 'Next sync check after'}</dt><dd>${time(nextRunAt)}</dd>` : ''}`;
+}
 
 async function refreshFromStorage() {
   const state = await localLog.read();
@@ -1667,7 +1707,14 @@ async function refreshFromStorage() {
   if (!enabled) syncStatusEl.textContent = syncMessage || (linked ? `Disconnected · ${count} changes waiting for reconnect` : 'Saved on this device · sync is off');
   else if (!navigator.onLine) syncStatusEl.textContent = `Offline · ${count} changes waiting`;
   else syncStatusEl.textContent = syncMessage || catchUpStatus(state.sync) || (count ? `${count} changes waiting` : state.sync.syncedAt ? 'Up to date' : 'Waiting to sync');
+  renderSyncDebug(state);
 }
+
+weightDebugEl.addEventListener('toggle', () => {
+  if (!weightDebugEl.open) return;
+  renderWeeklyGrowth();
+  if (localLog) void refreshFromStorage().catch(error => { errEl.textContent = error.message; });
+});
 
 async function syncAction(action) {
   syncActionBusy = true;
@@ -1727,10 +1774,16 @@ resetConfirm.addEventListener('click', async () => {
 try {
   // Leave legacy keys intact as a backup; IndexedDB marks migration atomically.
   localLog = await LocalLog.open({ legacy: () => ({ entries: load(), settings: loadSettings() }) });
-  syncEngine = new SyncEngine(localLog, { createOptions: { credentialFormat: 'passphrase' }, onStatus: message => {
-    syncMessage = message;
-    void refreshFromStorage().catch(error => { errEl.textContent = error.message; });
-  } });
+  syncEngine = new SyncEngine(localLog, {
+    createOptions: { credentialFormat: 'passphrase' },
+    onStatus: message => {
+      syncMessage = message;
+      void refreshFromStorage().catch(error => { errEl.textContent = error.message; });
+    },
+    onActivity: () => {
+      if (weightDebugEl.open) void refreshFromStorage().catch(error => { errEl.textContent = error.message; });
+    },
+  });
   localLog.subscribe(() => { void refreshFromStorage().catch(error => { errEl.textContent = error.message; }); });
   await refreshFromStorage();
   document.getElementById('babySettings').open = birthTs() == null;
@@ -1741,6 +1794,7 @@ try {
     if (document.hidden) return;
     try {
       const state = await localLog.read();
+      if (state.revision >= lastRevision) renderSyncDebug(state);
       if (state.sync?.enabled && (state.sync.catchingUp || state.pending.length || Date.now() - (state.sync.syncedAt || 0) > 30000)) void syncEngine.run();
     } catch (error) { errEl.textContent = error.message; }
   }, 5000);
@@ -1752,6 +1806,7 @@ try {
 } catch (error) {
   errEl.textContent = `Could not open local storage: ${error.message}. Existing data has not been removed.`;
   syncStatusEl.textContent = 'Local storage unavailable. Saving is disabled.';
+  syncDebugStatusEl.textContent = 'Local storage unavailable.';
 }
 </script>
 </body>

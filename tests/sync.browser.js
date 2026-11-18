@@ -66,9 +66,9 @@ test('Chromium: weekly growth debug explains the headline using the same weigh-i
   const context = await browser.newContext({ locale: 'en-US', timezoneId: 'UTC', viewport: { width: 375, height: 812 } });
   try {
     const page = await open(context);
-    const debug = page.locator('#weeklyGrowthDebug');
+    const debug = page.locator('#weightDebug');
     const headline = page.locator('#weeklyGrowth');
-    const details = debug.locator('dd');
+    const details = debug.locator('#weeklyGrowthDebugContent dd');
     async function addAt(kg, timestamp) {
       await page.locator('#useCustomTime').check();
       await page.locator('#datetime').fill(timestamp);
@@ -99,6 +99,50 @@ test('Chromium: weekly growth debug explains the headline using the same weigh-i
     assert.equal(await headline.textContent(), '30.0 g/day');
     assert.equal(rate, '195 g ÷ 6.5 days ≈ 30.0 g/day');
   } finally {
+    await context.close();
+  }
+});
+
+test('Chromium: sync debug shows local queue, failed upload, retry and saved timestamps', async () => {
+  const context = await browser.newContext();
+  let releaseUpload;
+  const blockedUpload = new Promise(resolve => { releaseUpload = resolve; });
+  try {
+    const page = await open(context);
+    const status = page.locator('#syncDebugStatus');
+    const details = page.locator('#syncDebugContent dd');
+    await page.locator('#weightDebug summary').click();
+    await status.getByText('Sync off', { exact: true }).waitFor();
+    await page.locator('#syncCreate').click();
+    await synced(page);
+    assert.equal(await details.nth(1).textContent(), 'No timestamp recorded');
+    assert.notEqual(await details.nth(2).textContent(), 'No timestamp recorded');
+
+    const privateMessage = 'A server error that may contain private data';
+    await page.route('**/api/sync/append', async route => {
+      await blockedUpload;
+      await route.fulfill({ status: 503, json: { error: privateMessage } });
+    }, { times: 1 });
+    await add(page, 3.5);
+    await status.getByText('Uploading', { exact: true }).waitFor();
+    assert.equal(await details.first().textContent(), 'Adds 1 · Edits 0 · Deletions 0 · Settings 0');
+    releaseUpload();
+    await status.getByText('Waiting to retry', { exact: true }).waitFor();
+    assert.match(await details.nth(3).textContent(), /^Upload failed \(HTTP 503\)/);
+    assert.equal(await page.locator('#syncDebugContent').getByText(privateMessage).count(), 0);
+    await page.getByText('Automatic retry after', { exact: true }).waitFor();
+
+    await page.locator('#syncRetry').click();
+    await synced(page);
+    assert.equal(await details.first().textContent(), 'Adds 0 · Edits 0 · Deletions 0 · Settings 0');
+    const upload = await details.nth(1).textContent();
+    assert.notEqual(upload, 'No timestamp recorded');
+    await page.reload();
+    await page.locator('#weightDebug summary').click();
+    await details.nth(1).waitFor();
+    assert.equal(await details.nth(1).textContent(), upload);
+  } finally {
+    releaseUpload();
     await context.close();
   }
 });
