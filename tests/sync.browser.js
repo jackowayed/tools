@@ -62,6 +62,144 @@ async function savedBirth(page) {
   });
 }
 
+test('Chromium: weekly growth debug explains the headline using the same weigh-ins', async () => {
+  const context = await browser.newContext({ locale: 'en-US', timezoneId: 'UTC', viewport: { width: 375, height: 812 } });
+  try {
+    const page = await open(context);
+    const debug = page.locator('#weightDebug');
+    const headline = page.locator('#weeklyGrowth');
+    const details = debug.locator('#weeklyGrowthDebugContent dd');
+    async function addAt(kg, timestamp) {
+      await page.locator('#useCustomTime').check();
+      await page.locator('#datetime').fill(timestamp);
+      await add(page, kg);
+    }
+
+    assert.equal(await debug.evaluate(el => el.open), false);
+    await debug.locator('summary').press('Enter');
+    await debug.getByText('No naked, before-feed weigh-ins yet.').waitFor();
+    await addAt(4.2, '2026-11-08T12:00');
+    await addAt(4.1, '2026-11-02T00:01');
+    await debug.getByText('No eligible reading at least 6.5 days earlier.').waitFor();
+    assert.match(await details.last().textContent(), /4100 g · 1 min too recent$/);
+    assert.equal(await headline.textContent(), '-');
+
+    await addAt(3.9, '2026-11-01T00:00');
+    await addAt(4.005, '2026-11-02T00:00');
+    await page.locator('#clothedToggle').check();
+    await addAt(4.3, '2026-11-08T13:00');
+    await page.locator('#feedToggle').check();
+    await addAt(4.4, '2026-11-08T14:00');
+    await page.locator('#historyFeed').selectOption('after');
+
+    const [latest, cutoff, earlier, skipped, difference, denominator, rate] = await details.allTextContents();
+    assert.match(cutoff, /^Nov 2, 2026, 12:00:00\.000\sAM /);
+    assert.match(skipped, /4100 g · 1 min too recent$/);
+    assert.match(latest, /^Nov 8, 2026, 12:00:00\.000\sPM .* · 4200 g$/);
+    assert.match(earlier, /^Nov 2, 2026, 12:00:00\.000\sAM .* · 4005 g$/);
+    assert.equal(difference, '4200 g − 4005 g ≈ 195 g');
+    assert.equal(denominator, '561,600,000 ms ÷ 86,400,000 ms/day ≈ 6.5 days');
+    assert.equal(await headline.textContent(), '30.0 g/day');
+    assert.equal(rate, '195 g ÷ 6.5 days ≈ 30.0 g/day');
+    await page.locator('#clothedToggle').check();
+    await page.locator('#feedToggle').check();
+    await addAt(4.15, '2026-11-02T00:00');
+    assert.match(await details.nth(3).textContent(), /4150 g · clothed · after feed$/);
+    assert.equal(await headline.textContent(), '30.0 g/day');
+  } finally {
+    await context.close();
+  }
+});
+
+test('Chromium: sync debug shows local queue, failed upload, retry and saved timestamps', async () => {
+  const context = await browser.newContext();
+  let releaseUpload;
+  const blockedUpload = new Promise(resolve => { releaseUpload = resolve; });
+  try {
+    const page = await open(context);
+    const status = page.locator('#syncDebugStatus');
+    const details = page.locator('#syncDebugContent dd');
+    await page.locator('#weightDebug summary').click();
+    await status.getByText('Sync off', { exact: true }).waitFor();
+    await page.locator('#syncCreate').click();
+    await synced(page);
+    assert.equal(await details.nth(1).textContent(), 'No timestamp recorded');
+    assert.notEqual(await details.nth(2).textContent(), 'No timestamp recorded');
+
+    const privateMessage = 'A server error that may contain private data';
+    await page.route('**/api/sync/append', async route => {
+      await blockedUpload;
+      await route.fulfill({ status: 503, json: { error: privateMessage } });
+    }, { times: 1 });
+    await add(page, 3.5);
+    await status.getByText('Uploading', { exact: true }).waitFor();
+    assert.equal(await details.first().textContent(), 'Adds 1 · Edits 0 · Deletions 0 · Settings 0');
+    releaseUpload();
+    await status.getByText('Waiting to retry', { exact: true }).waitFor();
+    assert.match(await details.nth(3).textContent(), /^Upload failed \(HTTP 503\)/);
+    assert.equal(await page.locator('#syncDebugContent').getByText(privateMessage).count(), 0);
+    await page.getByText('Automatic retry after', { exact: true }).waitFor();
+
+    await page.locator('#syncRetry').click();
+    await synced(page);
+    assert.equal(await details.first().textContent(), 'Adds 0 · Edits 0 · Deletions 0 · Settings 0');
+    const upload = await details.nth(1).textContent();
+    assert.notEqual(upload, 'No timestamp recorded');
+    await page.reload();
+    await page.locator('#weightDebug summary').click();
+    await details.nth(1).waitFor();
+    assert.equal(await details.nth(1).textContent(), upload);
+  } finally {
+    releaseUpload();
+    await context.close();
+  }
+});
+
+test('Chromium: feed pairing debug agrees with History and updates after deleting a match', async () => {
+  const context = await browser.newContext({ locale: 'en-US', timezoneId: 'UTC', viewport: { width: 375, height: 812 } });
+  try {
+    await context.addInitScript(() => {
+      const base = Date.parse('2026-11-06T10:00:00Z');
+      const reading = (id, minutes, kg, afterFeed = false, clothed = false) => ({
+        type: 'weight', id, ts: base + minutes * 60000, kg, afterFeed, clothed,
+      });
+      localStorage.setItem('babyWeightLog', JSON.stringify([
+        reading('older', -20, 3), reading('matched', 0, 3.2), reading('clothed', 10, 3.4, false, true),
+        reading('paired', 20, 3.15, true), reading('unpaired', 81, 3.3, true),
+      ]));
+    });
+    const page = await open(context);
+    await rows(page, 5);
+    await page.locator('#weightDebug summary').click();
+    const select = page.getByLabel('After-feed weigh-in', { exact: true });
+    const details = page.locator('#feedPairingContent dd');
+    await select.waitFor();
+    assert.equal(await select.inputValue(), 'unpaired');
+    assert.match(await details.nth(1).textContent(), /within 60 minutes/);
+
+    await select.selectOption('paired');
+    assert.match(await details.nth(0).textContent(), /10:20:00\.000.*3150 g · Naked/);
+    assert.match(await details.nth(1).textContent(), /10:00:00\.000.*3200 g · Naked/);
+    assert.equal(await details.nth(2).textContent(), '20 min');
+    assert.equal(await details.nth(3).textContent(), '3150 g − 3200 g ≈ -50 g');
+    await page.locator('#historyFeed').selectOption('after');
+    await page.locator('#tabList').click();
+    assert.equal(await select.inputValue(), 'paired');
+    assert.equal(await details.nth(4).textContent(), '~−50 g (1.8 oz)');
+    assert.match(await page.locator('.ate-line').textContent(), /Ate ~−50 g \(1\.8 oz\) · 20 min/);
+
+    await page.locator('#historyFeed').selectOption('all');
+    await page.locator('#tabTable').click();
+    page.once('dialog', dialog => dialog.accept());
+    await page.locator('#table .del[data-id="matched"]').click();
+    await rows(page, 4);
+    assert.equal(await select.inputValue(), 'paired');
+    assert.match(await details.nth(1).textContent(), /9:40:00\.000.*3000 g · Naked/);
+    assert.equal(await details.nth(2).textContent(), '40 min');
+    assert.equal(await details.nth(4).textContent(), '~+150 g (5.3 oz)');
+  } finally { await context.close(); }
+});
+
 test('Chromium: diaper subtraction defaults off, saves net kg in either unit, and never changes earlier readings', async () => {
   const context = await browser.newContext();
   const page = await open(context);

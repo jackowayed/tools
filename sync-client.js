@@ -101,6 +101,7 @@ function applyRecords(state, key, page, records) {
     if (record.seq > state.sync.cursor) applyOperation(state, record.op, record.seq);
   }
   recordPullProgress(state.sync, page, records);
+  state.sync.lastDownloadAt = Date.now();
   return state;
 }
 
@@ -265,6 +266,7 @@ export class LocalLog {
       state.sync.acknowledgedSeq = Math.max(state.sync.acknowledgedSeq ?? 0, ...assigned.values());
       if (state.sync.acknowledgedSeq > state.sync.cursor) state.sync.catchingUp = true;
       state.pending = state.pending.filter(op => !assigned.has(op.opId));
+      state.sync.lastUploadAt = Date.now();
       // Acknowledging our own writes says nothing about intervening remote operations.
       return state;
     });
@@ -274,11 +276,26 @@ export class LocalLog {
 
 export class SyncEngine {
   constructor(log, { fetcher = globalThis.fetch.bind(globalThis), onStatus = () => {},
+    onActivity = () => {},
     basePath = '/api/sync', parseCredential = parseKey, lockName = 'baby-weight-sync', createOptions = {} } = {}) {
     this.log = log; this.fetcher = fetcher; this.onStatus = onStatus;
     this.basePath = basePath; this.parseCredential = parseCredential; this.lockName = lockName;
     this.createOptions = createOptions;
     this.running = null; this.failures = 0; this.nextAttempt = 0; this.retryAfter = 0;
+    this.onActivity = onActivity; this.activeActions = new Set(); this.lastError = null;
+  }
+  async track(action, work) {
+    const active = { action };
+    this.activeActions.add(active);
+    this.onActivity();
+    try { return await work(); }
+    catch (error) {
+      this.lastError = { action, at: Date.now(), httpStatus: error?.syncHttpStatus };
+      throw error;
+    } finally {
+      this.activeActions.delete(active);
+      this.onActivity();
+    }
   }
   async request(action, body, key) {
     if (key) {
@@ -301,25 +318,30 @@ export class SyncEngine {
       });
     }
     let data;
-    try { data = await response.json(); } catch { throw new Error('Sync server returned an invalid response.'); }
-    if (!response.ok) throw new Error(data.error || `Sync failed (${response.status}).`);
+    try { data = await response.json(); }
+    catch { throw Object.assign(new Error('Sync server returned an invalid response.'), { syncHttpStatus: response.status }); }
+    if (!response.ok) throw Object.assign(new Error(data.error || `Sync failed (${response.status}).`), { syncHttpStatus: response.status });
     if (data.v !== VERSION) throw new Error('Unsupported sync server version.');
     return data;
   }
   async create() {
-    const state = await this.log.read();
-    if (state.sync) throw new Error('This browser already has a sync key. Use Reconnect.');
-    const data = await this.request('create', this.createOptions);
-    await this.log.link(data.key, { created: true });
-    return data.key;
+    return this.track('create', async () => {
+      const state = await this.log.read();
+      if (state.sync) throw new Error('This browser already has a sync key. Use Reconnect.');
+      const data = await this.request('create', this.createOptions);
+      await this.log.link(data.key, { created: true });
+      return data.key;
+    });
   }
   async connect(key) {
-    const auth = this.parseCredential(key);
-    const state = await this.log.read();
-    if (state.sync && state.sync.key !== auth.key) throw new Error('Use this browser’s original sync key. Switching datasets is not supported.');
-    // Authenticate before binding local work or discarding initial local settings.
-    const initialPage = await this.request('pull', { afterSeq: 0 }, auth.key);
-    await this.log.link(auth.key, { initialPage, discardSettingIds: state.pending.filter(op => op.type === 'set-setting').map(op => op.opId) });
+    return this.track('connect', async () => {
+      const auth = this.parseCredential(key);
+      const state = await this.log.read();
+      if (state.sync && state.sync.key !== auth.key) throw new Error('Use this browser’s original sync key. Switching datasets is not supported.');
+      // Authenticate before binding local work or discarding initial local settings.
+      const initialPage = await this.request('pull', { afterSeq: 0 }, auth.key);
+      await this.log.link(auth.key, { initialPage, discardSettingIds: state.pending.filter(op => op.type === 'set-setting').map(op => op.opId) });
+    });
   }
   async pull(key, maxPages = 4) {
     const deadline = Date.now() + 3000;
@@ -327,8 +349,11 @@ export class SyncEngine {
       const state = await this.log.read();
       if (!state.sync?.enabled || state.sync.key !== key) return;
       const afterSeq = state.sync.cursor;
-      const page = await this.request('pull', { afterSeq }, key);
-      await this.log.applyPage(key, afterSeq, page);
+      const page = await this.track('pull', async () => {
+        const result = await this.request('pull', { afterSeq }, key);
+        await this.log.applyPage(key, afterSeq, result);
+        return result;
+      });
       if (!page.hasMore || Date.now() >= deadline) return;
     }
     // More history is ordinary progress. The next cycle resumes at the saved cursor.
@@ -344,8 +369,10 @@ export class SyncEngine {
     // Upload between pull chunks, so a long history cannot starve local edits.
     const sent = latest.pending.slice(0, MAX_BATCH);
     if (sent.length) {
-      const response = await this.request('append', { ops: sent }, key);
-      await this.log.acknowledge(key, sent, response);
+      await this.track('append', async () => {
+        const response = await this.request('append', { ops: sent }, key);
+        await this.log.acknowledge(key, sent, response);
+      });
     }
     await this.pull(key, 1);
     return this.log.change(current => {
@@ -361,6 +388,7 @@ export class SyncEngine {
     if (this.running) return this.running;
     if (Date.now() < this.retryAfter || (!force && Date.now() < this.nextAttempt)) return Promise.resolve();
     this.running = (async () => {
+      const previousError = this.lastError;
       try {
         const attempt = async () => {
           const state = await this.log.read();
@@ -374,6 +402,7 @@ export class SyncEngine {
           await navigator.locks.request(this.lockName, { ifAvailable: true }, lock => lock ? attempt() : undefined);
         } else await attempt();
       } catch (error) {
+        if (this.lastError === previousError) this.lastError = { action: 'sync', at: Date.now() };
         this.failures++;
         this.nextAttempt = Math.max(this.retryAfter, Date.now() + Math.min(300000, 2000 * 2 ** Math.min(this.failures, 7)) * (0.8 + Math.random() * 0.4));
         this.onStatus(error.message);
