@@ -59,3 +59,23 @@ applying changes. Reset clears only the current timer, after confirmation.
 Run `npm test` for timer logic and `npm run test:browser:nursing` for the mobile
 workflow (install Chromium with `npm run test:browser:install`, or set
 `CHROMIUM_PATH` to an existing Chromium executable).
+
+## Scale photos
+
+In Baby Weight, **Take scale photo** opens the rear camera on supported phones;
+**Choose photo** uses an existing image. The reader targets blue seven-segment
+`lb:oz` displays with a visible colon and one decimal ounce digit, like
+`12:6.2`. Use a straight-on close-up with flash off. Other display colors and
+heavily tilted, obscured, or reflective photos may need manual entry.
+
+Recognition runs locally without dependencies, API keys, or photo uploads.
+The image preview is temporary and is not saved or synced. A successful read
+fills the weight inputs (converting to kg if selected); inspect the preview and
+correct any misread digits before pressing **Add weigh-in** or **Save changes**.
+Feed, clothing, diaper, and timestamp choices retain their existing behavior.
+A failed read leaves the weight fields unchanged.
+
+Run `node --test tests/scale-photo.test.js` for generated display recognition
+cases and `CHROMIUM_PATH=/usr/bin/chromium npm run test:browser:scale` for the
+mobile upload/review/save workflow. These fixtures cover idealized displays;
+real camera photos still need validation across lighting and angles.
