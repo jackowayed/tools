@@ -682,6 +682,41 @@ test('Chromium: reset requires typed confirmation, clears other tabs and can rec
   } finally { await context.close(); }
 });
 
+test('Chromium: export downloads all local data as JSON without the sync credential', async () => {
+  const context = await browser.newContext({ acceptDownloads: true });
+  try {
+    const page = await open(context);
+    await page.locator('#birthDate').fill('2025-01-02');
+    await page.locator('#sexBoy').click();
+    await add(page, 3.5);
+    await add(page, 3.6);
+    page.once('dialog', dialog => dialog.accept());
+    await page.locator('#table .del').first().click();
+    await rows(page, 1);
+    await page.locator('#syncCreate').click(); await synced(page);
+    const credential = await page.locator('#syncKey').inputValue();
+    await add(page, 3.7);
+    await page.evaluate(() => localStorage.setItem('babyWeightLog.rejected', '[{"quarantinedAt":1,"entry":{}}]'));
+    await page.evaluate(() => { document.getElementById('babySettings').open = true; });
+    const [download] = await Promise.all([page.waitForEvent('download'), page.locator('#exportData').click()]);
+    assert.match(download.suggestedFilename(), /^baby-weight-export-\d{4}-\d{2}-\d{2}\.json$/);
+    const text = await readFile(await download.path(), 'utf8');
+    assert.equal(text.includes(credential), false);
+    const data = JSON.parse(text);
+    assert.equal(data.format, 'baby-weight-export');
+    assert.deepEqual(data.entries.map(e => e.kg), [3.5, 3.7]);
+    assert.ok(data.entries.every(e => e.time === new Date(e.ts).toISOString()));
+    assert.equal(data.settings.birth, '2025-01-02');
+    assert.equal(data.settings.sex, 'male');
+    assert.equal(data.settings.unit, 'kg');
+    assert.equal(data.deletedEntryIds.length, 1);
+    assert.equal(data.pendingChanges.length, 1);
+    assert.equal(data.sync.enabled, true);
+    assert.equal('key' in data.sync, false);
+    assert.deepEqual(data.rejectedLegacyEntries, [{ quarantinedAt: 1, entry: {} }]);
+  } finally { await context.close(); }
+});
+
 test('Chromium: table defaults to latest 12 matching weights and can show all', async () => {
   const context = await browser.newContext();
   try {

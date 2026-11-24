@@ -605,6 +605,10 @@
   .reset-danger { background: #b42318; color: white; border: 0; border-radius: .5rem; padding: .7rem 1rem; cursor: pointer; }
   .reset-danger:disabled { opacity: .5; cursor: not-allowed; }
   #resetClient { margin-top: 1.25rem; }
+  .data-actions { display: flex; flex-wrap: wrap; gap: .75rem; align-items: center; margin-top: 1.25rem; }
+  .data-actions #resetClient { margin-top: 0; }
+  #exportData { padding: .7rem 1rem; border: 1px solid #d9d9df; border-radius: .5rem; background: #f7f7fa; color: #333; font: inherit; cursor: pointer; }
+  #exportData:disabled { opacity: .5; cursor: not-allowed; }
   #resetDialog { margin: auto; border: 0; border-radius: 1rem; padding: 1.5rem; max-width: 460px; width: calc(100% - 2rem); }
   #resetDialog::backdrop { background: #0008; }
   #resetDialog p { margin: 1rem 0; line-height: 1.5; }
@@ -778,7 +782,11 @@
   <p id="syncStatus" class="settings-note" role="status" aria-live="polite">Opening local storage…</p>
   <p class="settings-note">Anyone with the key can read and change this log. Keep a copy: there is no key recovery. Sync stores readable records on the server over HTTPS; it is not end-to-end encrypted. Deleting a weigh-in hides it on all devices, but the server retains its history. Disconnect keeps this device’s data and pending changes.</p>
 </div>
-<button type="button" id="resetClient" class="reset-danger" disabled>Delete &amp; Reset Client</button>
+<div class="data-actions">
+  <button type="button" id="exportData" disabled>Export data (JSON)</button>
+  <button type="button" id="resetClient" class="reset-danger" disabled>Delete &amp; Reset Client</button>
+</div>
+<p class="settings-note">The export includes every weigh-in, setting, and unsynced change on this device. It leaves out your sync passphrase.</p>
 </details>
 
 <dialog id="resetDialog" aria-labelledby="resetTitle" aria-describedby="resetDescription resetKeyReminder">
@@ -1823,6 +1831,44 @@ document.getElementById('syncShow').addEventListener('click', ev => {
   ev.target.textContent = syncKeyEl.type === 'password' ? 'Show' : 'Hide';
 });
 
+function readLegacyRejected() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(REJECTED_KEY));
+    return Array.isArray(raw) ? raw : [];
+  } catch { return []; }
+}
+
+function buildExport(state) {
+  const view = visibleState(state);
+  const { key, ...syncInfo } = state.sync || {};
+  return {
+    format: 'baby-weight-export',
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    settings: view.settings,
+    entries: [...view.entries].sort((a, b) => a.ts - b.ts).map(e => ({ ...e, time: new Date(e.ts).toISOString() })),
+    pendingChanges: state.pending,
+    deletedEntryIds: state.tombstones,
+    sync: state.sync ? syncInfo : null,
+    rejectedLegacyEntries: readLegacyRejected(),
+  };
+}
+
+document.getElementById('exportData').addEventListener('click', async () => {
+  try {
+    const data = buildExport(await localLog.read());
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `baby-weight-export-${toLocalInputValue(new Date()).slice(0, 10)}.json`;
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (error) { errEl.textContent = `Could not export data: ${error.message}`; }
+});
+
 const resetDialog = document.getElementById('resetDialog');
 const resetConfirmation = document.getElementById('resetConfirmation');
 const resetConfirm = document.getElementById('resetConfirm');
@@ -1875,6 +1921,7 @@ try {
   document.getElementById('babySettings').open = birthTs() == null;
   for (const control of mutationControls) control.disabled = false;
   document.getElementById('resetClient').disabled = false;
+  document.getElementById('exportData').disabled = false;
   void syncEngine.run();
   setInterval(async () => {
     if (document.hidden) return;
